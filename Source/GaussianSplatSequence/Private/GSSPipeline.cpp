@@ -141,7 +141,7 @@ namespace
 		}
 
 		// Piloted camera or Sequencer camera cut lock (cinematic lock wins).
-		if (AActor* Locked = Client->GetActiveActorLock().GetLockedActor())
+		if (AActor* Locked = Client->GetActiveActorLock().Get())
 		{
 			if (UCameraComponent* Camera = Locked->FindComponentByClass<UCameraComponent>())
 			{
