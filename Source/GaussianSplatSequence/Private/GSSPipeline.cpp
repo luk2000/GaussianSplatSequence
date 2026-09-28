@@ -740,15 +740,22 @@ FGSSResult GSSPipeline::WriteTrainingScript(const UGSSSettings& Settings, FStrin
 			PrevSplat.ReplaceInline(TEXT("{prev_output}"), *PrevOutput);
 			PrevSplat.ReplaceInline(TEXT("{prev_name}"), *PrevName);
 			PrevSplat = Native(PrevSplat);
+			// Prefer the expected file; otherwise fall back to the newest .ply of the previous frame.
 			if (bWindows)
 			{
-				Script += FString::Printf(TEXT("if exist \"%s\" (%s  %%LFS%% %s --init \"%s\"%s) else (%s  %%LFS%% %s%s)%s"),
-					*PrevSplat, NL, *Args, *PrevSplat, NL, NL, *Args, NL, NL);
+				const FString PrevDir = Native(PrevOutput);
+				Script += FString::Printf(TEXT("set \"PREV=\"%s"), NL);
+				Script += FString::Printf(TEXT("for /f \"delims=\" %%%%F in ('dir /b /s /o:d \"%s\\*.ply\" 2^>nul') do set \"PREV=%%%%F\"%s"), *PrevDir, NL);
+				Script += FString::Printf(TEXT("if exist \"%s\" set \"PREV=%s\"%s"), *PrevSplat, *PrevSplat, NL);
+				Script += FString::Printf(TEXT("if defined PREV (%s  %%LFS%% %s --init \"%%PREV%%\"%s) else (%s  %%LFS%% %s%s)%s"),
+					NL, *Args, NL, NL, *Args, NL, NL);
 			}
 			else
 			{
-				Script += FString::Printf(TEXT("if [ -f \"%s\" ]; then \"$LFS\" %s --init \"%s\"; else \"$LFS\" %s; fi%s"),
-					*PrevSplat, *Args, *PrevSplat, *Args, NL);
+				Script += FString::Printf(TEXT("PREV=$(find \"%s\" -name '*.ply' -printf '%%T@ %%p\\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)%s"), *PrevOutput, NL);
+				Script += FString::Printf(TEXT("if [ -f \"%s\" ]; then PREV=\"%s\"; fi%s"), *PrevSplat, *PrevSplat, NL);
+				Script += FString::Printf(TEXT("if [ -n \"$PREV\" ]; then \"$LFS\" %s --init \"$PREV\"; else \"$LFS\" %s; fi%s"),
+					*Args, *Args, NL);
 			}
 		}
 		else

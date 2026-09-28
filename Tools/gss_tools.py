@@ -346,7 +346,7 @@ def cmd_train(args) -> int:
         out = os.path.join(trained_root, name)
         os.makedirs(out, exist_ok=True)
         cmd = [args.exe, "-d", folder, "-o", out, "-i", str(args.iter), "--headless",
-               "--output-name", name, "--export", "ply"] + shlex.split(args.extra)
+               "--output-name", name] + shlex.split(args.extra)
         if args.strategy:
             cmd += ["--strategy", args.strategy]
         if args.max_splats:

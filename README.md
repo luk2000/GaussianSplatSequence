@@ -74,10 +74,11 @@ Shot010/frame_0101/
 * **LichtFeld Executable** setzen, **Start Training** klicken (oder **Write Training Script** und das Skript selbst ausführen).
 * Standard-Argumente pro Frame (im Panel frei editierbar):
   ```
-  -d "{data}" -o "{output}" -i {iter} --headless --output-name {name} --export ply
+  -d "{data}" -o "{output}" -i {iter} --headless --output-name {name}
   ```
+  Nimm nur Flags auf, die `LichtFeld-Studio.exe --help` deiner Version auflistet (das aktuelle Release kennt z. B. kein `--export`).
 * **Max Splats** begrenzt die Anzahl der Gaussians pro Frame (`--max-cap`). Dafür steht **Strategy** standardmäßig auf `mcmc`.
-* **Init From Previous Frame** hängt `--init <Splat des Vorframes>` an. Das stabilisiert die Sequenz zeitlich und das Training konvergiert schneller. Ob der Pfad aus *Previous Splat Pattern* existiert, prüft das Skript. Wird der Splat nicht gefunden, trainiert es ohne Init. (Die Python-Variante sucht zusätzlich nach der neuesten `.ply` im Output.)
+* **Init From Previous Frame** hängt `--init <Splat des Vorframes>` an. Das stabilisiert die Sequenz zeitlich und das Training konvergiert schneller. Das Skript nimmt den Pfad aus *Previous Splat Pattern*. Existiert der nicht, nimmt es die neueste `.ply` im Output-Ordner des Vorframes. Findet es gar keinen Splat, trainiert es ohne Init.
 * Ergebnis: `Shot010/trained/frame_0101/frame_0101.ply` usw.
 
 Einzelnen Frame manuell in der GUI öffnen: in LichtFeld Studio den Ordner `frame_0101` als COLMAP-Datensatz laden.
