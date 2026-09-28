@@ -17,6 +17,7 @@
 #include "LevelEditorViewport.h"
 #include "LevelSequence.h"
 #include "LevelSequenceEditorBlueprintLibrary.h"
+#include "Math/RandomStream.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Misc/ScopedSlowTask.h"
@@ -551,6 +552,18 @@ FGSSResult GSSPipeline::ConvertDepthForFrame(const UGSSSettings& Settings, const
 		}
 	}
 
+	const int32 NumValid = Points.Num();
+	if (Settings.MaxPoints > 0 && Points.Num() > Settings.MaxPoints)
+	{
+		// Uniform random subset (partial Fisher-Yates), deterministic across frames.
+		FRandomStream Random(1337);
+		for (int32 Index = 0; Index < Settings.MaxPoints; ++Index)
+		{
+			Points.Swap(Index, Random.RandRange(Index, Points.Num() - 1));
+		}
+		Points.SetNum(Settings.MaxPoints);
+	}
+
 	if (Points.Num() == 0)
 	{
 		return FGSSResult::Error(FString::Printf(TEXT("%s: no valid depth pixels in %s (check Depth Channel, Min/Max Depth and Depth To Unreal Units)."), *FrameName, *DepthPath));
@@ -565,7 +578,7 @@ FGSSResult GSSPipeline::ConvertDepthForFrame(const UGSSSettings& Settings, const
 		return FGSSResult::Error(Error);
 	}
 
-	return FGSSResult::Ok(FString::Printf(TEXT("%s: %d points"), *FrameName, Points.Num()));
+	return FGSSResult::Ok(FString::Printf(TEXT("%s: %d points (%d valid pixels, depth %dx%d)"), *FrameName, Points.Num(), NumValid, DW, DH));
 }
 
 TArray<TPair<int32, FString>> GSSPipeline::FindFrameFolders(const UGSSSettings& Settings)
@@ -702,6 +715,14 @@ FGSSResult GSSPipeline::WriteTrainingScript(const UGSSSettings& Settings, FStrin
 		Args.ReplaceInline(TEXT("{output}"), *Native(Output));
 		Args.ReplaceInline(TEXT("{name}"), *Name);
 		Args.ReplaceInline(TEXT("{iter}"), *FString::FromInt(Settings.Iterations));
+		if (!Settings.Strategy.TrimStartAndEnd().IsEmpty() && !Args.Contains(TEXT("--strategy")))
+		{
+			Args += FString::Printf(TEXT(" --strategy %s"), *Settings.Strategy.TrimStartAndEnd());
+		}
+		if (Settings.MaxSplats > 0 && !Args.Contains(TEXT("--max-cap")))
+		{
+			Args += FString::Printf(TEXT(" --max-cap %d"), Settings.MaxSplats);
+		}
 
 		Script += FString::Printf(TEXT("echo [%d/%d] %s%s"), Index + 1, Frames.Num(), *Name, NL);
 		if (bWindows)

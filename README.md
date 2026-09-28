@@ -67,6 +67,7 @@ Shot010/frame_0101/
 | Depth To Unreal Units | 1 | 100, falls die Tiefe in Metern gespeichert ist. |
 | Min/Max Depth | 1 / 100000 cm | Himmel und zu nahe Pixel verwerfen. |
 | Pixel Stride | 2 | Nur jeden n-ten Pixel verwenden (1920×1080, Stride 2 ≈ 520k Punkte). |
+| Max Points | 0 | Obergrenze Punkte pro Frame (0 = aus). Überzählige Punkte werden zufällig-gleichmäßig ausgedünnt. Mit Stride 1 + Max Points bekommst du ein festes Punktbudget, unabhängig von der EXR-Auflösung. |
 | Edge Threshold | 0.05 | Pixel mit > 5 % Tiefensprung zum Nachbarn verwerfen (fliegende Punkte). |
 
 ### 4. Training in LichtFeld Studio
@@ -75,6 +76,7 @@ Shot010/frame_0101/
   ```
   -d "{data}" -o "{output}" -i {iter} --headless --output-name {name} --export ply
   ```
+* **Max Splats** begrenzt die Anzahl der Gaussians pro Frame (`--max-cap`). Dafür steht **Strategy** standardmäßig auf `mcmc`.
 * **Init From Previous Frame** hängt `--init <Splat des Vorframes>` an. Das stabilisiert die Sequenz zeitlich und das Training konvergiert schneller. Ob der Pfad aus *Previous Splat Pattern* existiert, prüft das Skript. Wird der Splat nicht gefunden, trainiert es ohne Init. (Die Python-Variante sucht zusätzlich nach der neuesten `.ply` im Output.)
 * Ergebnis: `Shot010/trained/frame_0101/frame_0101.ply` usw.
 
@@ -97,10 +99,10 @@ Einzelnen Frame manuell in der GUI öffnen: in LichtFeld Studio den Ordner `fram
 ```bash
 pip install numpy OpenEXR pillow
 
-# Depth -> Punkte für alle Frames (auch Multilayer: --depth-channel "FinalImage.WorldDepth.R")
+# Depth -> Punkte für alle Frames (auch Multilayer: --depth-channel "FinalImage.WorldDepth.R"), max. 300k Punkte
 python Tools/gss_tools.py convert --root D:/Splats/Shot010 \
     --depth "D:/Renders/Shot010/Shot010.MovieRenderQueue_WorldDepth.{frame}.exr" \
-    --color "D:/Renders/Shot010/Shot010.FinalImage.{frame}.png"
+    --color "D:/Renders/Shot010/Shot010.FinalImage.{frame}.png" --stride 1 --max-points 300000
 
 # Kongruenz prüfen (Punkte in die Kamera zurückprojizieren und mit der Tiefe vergleichen)
 python Tools/gss_tools.py check --frame D:/Splats/Shot010/frame_0101 \
@@ -108,7 +110,7 @@ python Tools/gss_tools.py check --frame D:/Splats/Shot010/frame_0101 \
 
 # Alle Frames trainieren
 python Tools/gss_tools.py train --root D:/Splats/Shot010 --exe "C:/LichtFeld/LichtFeld-Studio.exe" \
-    --iter 7000 --init-from-previous --extra "--strategy mcmc"
+    --iter 7000 --init-from-previous --max-splats 500000
 ```
 
 Editor-Python in Unreal:

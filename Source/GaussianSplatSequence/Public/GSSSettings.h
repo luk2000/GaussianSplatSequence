@@ -153,6 +153,14 @@ public:
 	UPROPERTY(EditAnywhere, config, Category = "5 | Depth To Point Cloud", meta = (ClampMin = "1", ClampMax = "64"))
 	int32 PixelStride = 2;
 
+	/**
+	 * Upper limit of points per frame (0 = no limit). If more valid pixels remain after Pixel Stride and
+	 * filtering, the cloud is thinned uniformly at random (deterministic, same seed every frame).
+	 * Tip: Pixel Stride 1 + Max Points gives an exact point budget independent of the EXR resolution.
+	 */
+	UPROPERTY(EditAnywhere, config, Category = "5 | Depth To Point Cloud", meta = (ClampMin = "0"))
+	int32 MaxPoints = 0;
+
 	/** Drop pixels on depth discontinuities (relative depth jump to a neighbour). Removes "flying" points on silhouettes. 0 disables. */
 	UPROPERTY(EditAnywhere, config, Category = "5 | Depth To Point Cloud", meta = (ClampMin = "0"))
 	double EdgeThreshold = 0.05;
@@ -176,6 +184,14 @@ public:
 
 	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training", meta = (ClampMin = "1"))
 	int32 Iterations = 7000;
+
+	/** Maximum number of Gaussians per frame (LichtFeld --max-cap). 0 = LichtFeld default. Used by the MCMC strategy. */
+	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training", meta = (ClampMin = "0"))
+	int32 MaxSplats = 0;
+
+	/** LichtFeld optimisation strategy (--strategy), e.g. mcmc, mrnf, igs+. Empty = LichtFeld default. Use mcmc for a hard Max Splats cap. */
+	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training")
+	FString Strategy = TEXT("mcmc");
 
 	/** Initialise frame N with the trained splat of frame N-1 (--init). Gives temporally more stable sequences and faster convergence. */
 	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training")

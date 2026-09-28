@@ -17,7 +17,7 @@ Examples
       --depth "D:/Renders/Shot010/Shot010.{frame}.exr" --depth-channel "FinalImage.WorldDepth.R" \
       --color "D:/Renders/Shot010/Shot010.{frame}.png"
   python gss_tools.py check --frame D:/Splats/Shot010/frame_0001 --depth "D:/Renders/Shot010/Shot010.0001.exr"
-  python gss_tools.py train --root D:/Splats/Shot010 --exe "C:/LichtFeld/LichtFeld-Studio.exe" --iter 7000 --init-from-previous
+  python gss_tools.py train --root D:/Splats/Shot010 --exe "C:/LichtFeld/LichtFeld-Studio.exe" --iter 7000 --init-from-previous --max-splats 500000
 """
 
 from __future__ import annotations
@@ -261,6 +261,10 @@ def convert_frame(frame_dir: str, frame: int, args) -> int:
     world, pix = unproject(cam, depth, args.depth_type, unit_scale, args.depth_to_ue,
                            args.min_depth, args.max_depth, args.stride, args.edge_threshold)
 
+    if args.max_points and len(world) > args.max_points:
+        keep = np.random.default_rng(1337).choice(len(world), args.max_points, replace=False)
+        world, pix = world[keep], pix[keep]
+
     if args.color:
         color = read_color(resolve(args.color, frame, args.padding, args.offset, name))
         ch, cw = color.shape[:2]
@@ -343,6 +347,10 @@ def cmd_train(args) -> int:
         os.makedirs(out, exist_ok=True)
         cmd = [args.exe, "-d", folder, "-o", out, "-i", str(args.iter), "--headless",
                "--output-name", name, "--export", "ply"] + shlex.split(args.extra)
+        if args.strategy:
+            cmd += ["--strategy", args.strategy]
+        if args.max_splats:
+            cmd += ["--max-cap", str(args.max_splats)]
         if args.init_from_previous and prev_out:
             prev = find_splat(prev_out, prev_name)
             if prev:
@@ -381,6 +389,7 @@ def main() -> int:
     c.add_argument("--max-depth", type=float, default=1e5)
     c.add_argument("--stride", type=int, default=2)
     c.add_argument("--edge-threshold", type=float, default=0.05)
+    c.add_argument("--max-points", type=int, default=0, help="random uniform thinning to at most N points (0 = off)")
     c.add_argument("--text-only", action="store_true")
     depth_args(c)
     c.set_defaults(func=cmd_convert)
@@ -398,7 +407,9 @@ def main() -> int:
     t.add_argument("--trained", default="trained")
     t.add_argument("--iter", type=int, default=7000)
     t.add_argument("--init-from-previous", action="store_true")
-    t.add_argument("--extra", default="", help="extra LichtFeld arguments, e.g. \"--strategy mcmc\"")
+    t.add_argument("--max-splats", type=int, default=0, help="max Gaussians per frame (--max-cap), 0 = default")
+    t.add_argument("--strategy", default="mcmc", help="LichtFeld strategy (mcmc recommended for --max-splats)")
+    t.add_argument("--extra", default="", help="extra LichtFeld arguments, e.g. \"--sh-degree 3\"")
     t.add_argument("--stop-on-error", action="store_true")
     t.set_defaults(func=cmd_train)
 
