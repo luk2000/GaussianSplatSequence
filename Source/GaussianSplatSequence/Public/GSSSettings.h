@@ -16,6 +16,15 @@ enum class EGSSWorldAxes : uint8
 };
 
 UENUM()
+enum class EGSSCoordinateSpace : uint8
+{
+	/** Real camera path: the scene stays put, the camera moves through it. */
+	World        UMETA(DisplayName = "World (scene fixed, camera moves)"),
+	/** Every frame uses the same fixed camera pose; the scene is stored relative to the camera (3D film, like SHARP). */
+	CameraLocked UMETA(DisplayName = "Camera Locked (camera fixed, 3D film)"),
+};
+
+UENUM()
 enum class EGSSCameraSource : uint8
 {
 	/** First selected actor that has a Camera/CineCamera component. */
@@ -67,6 +76,22 @@ public:
 	/** Axis convention of the exported world. COLMAP/OpenCV matches what splat trainers and viewers expect from real captures. */
 	UPROPERTY(EditAnywhere, config, Category = "1 | Output")
 	EGSSWorldAxes WorldAxes = EGSSWorldAxes::OpenCV_YDown;
+
+	/**
+	 * World: cameras keep their real path. Camera Locked: every frame gets the same camera pose
+	 * (Locked Camera Location/Rotation) and the depth point cloud is expressed relative to it, so the
+	 * splat sequence plays back like a film from one fixed viewpoint. Re-export cameras and re-convert depth after changing.
+	 */
+	UPROPERTY(EditAnywhere, config, Category = "1 | Output")
+	EGSSCoordinateSpace CoordinateSpace = EGSSCoordinateSpace::World;
+
+	/** Fixed camera location (Unreal units) used for every frame in Camera Locked mode. */
+	UPROPERTY(EditAnywhere, config, Category = "1 | Output", meta = (EditCondition = "CoordinateSpace == EGSSCoordinateSpace::CameraLocked", EditConditionHides))
+	FVector LockedCameraLocation = FVector::ZeroVector;
+
+	/** Fixed camera rotation used for every frame in Camera Locked mode. */
+	UPROPERTY(EditAnywhere, config, Category = "1 | Output", meta = (EditCondition = "CoordinateSpace == EGSSCoordinateSpace::CameraLocked", EditConditionHides))
+	FRotator LockedCameraRotation = FRotator::ZeroRotator;
 
 	/** Unreal units -> dataset units. 0.01 = centimetres to metres. Applied to camera positions and depth. */
 	UPROPERTY(EditAnywhere, config, Category = "1 | Output", meta = (ClampMin = "0.000001"))
