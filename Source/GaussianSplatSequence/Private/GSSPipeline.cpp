@@ -180,12 +180,15 @@ namespace
 
 	FGSSColmapImage MakeColmapImage(const UGSSSettings& Settings, const FCapturedCamera& Camera, const FString& ImageName)
 	{
-		const FRotationMatrix Rotation(Camera.Rotation);
+		// Camera Locked: every frame shares one fixed pose. The depth conversion reads the pose back
+		// from COLMAP, so the point cloud automatically ends up in this camera-relative space.
+		const bool bLocked = Settings.CoordinateSpace == EGSSCoordinateSpace::CameraLocked;
+		const FRotationMatrix Rotation(bLocked ? Settings.LockedCameraRotation : Camera.Rotation);
 		const GSS::CameraPose Pose = GSS::PoseFromUnreal(
 			ToVec3(Rotation.GetScaledAxis(EAxis::X)),
 			ToVec3(Rotation.GetScaledAxis(EAxis::Y)),
 			ToVec3(Rotation.GetScaledAxis(EAxis::Z)),
-			ToVec3(Camera.Location),
+			ToVec3(bLocked ? Settings.LockedCameraLocation : Camera.Location),
 			ToMathAxes(Settings.WorldAxes),
 			Settings.UnitScale);
 
@@ -234,12 +237,13 @@ namespace
 
 		// Human readable record of the source camera (useful for debugging / re-import).
 		const FString UECameraInfo = FString::Printf(
-			TEXT("source=%s\nframe=%d\nlocation_cm=%.6f %.6f %.6f\nrotation_pyr_deg=%.6f %.6f %.6f\nhfov_deg=%.8f\nresolution=%d %d\nunit_scale=%.10g\nworld_axes=%d\n"),
+			TEXT("source=%s\nframe=%d\nlocation_cm=%.6f %.6f %.6f\nrotation_pyr_deg=%.6f %.6f %.6f\nhfov_deg=%.8f\nresolution=%d %d\nunit_scale=%.10g\nworld_axes=%d\ncoordinate_space=%s\n"),
 			*Camera.SourceName, FrameNumber,
 			Camera.Location.X, Camera.Location.Y, Camera.Location.Z,
 			Camera.Rotation.Pitch, Camera.Rotation.Yaw, Camera.Rotation.Roll,
 			Camera.HorizontalFov, Settings.ImageWidth, Settings.ImageHeight,
-			Settings.UnitScale, static_cast<int32>(Settings.WorldAxes));
+			Settings.UnitScale, static_cast<int32>(Settings.WorldAxes),
+			Settings.CoordinateSpace == EGSSCoordinateSpace::CameraLocked ? TEXT("camera_locked") : TEXT("world"));
 		FFileHelper::SaveStringToFile(UECameraInfo, *(FrameDir / TEXT("ue_camera.txt")));
 
 		return FGSSResult::Ok(FString::Printf(TEXT("Exported %s (%s)"), *FrameName, *Camera.SourceName));
