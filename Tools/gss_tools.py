@@ -338,29 +338,48 @@ def find_splat(output_dir: str, name: str) -> str | None:
 
 
 def cmd_train(args) -> int:
+    """Trains into <root>/_lichtfeld_work/<frame>, copies the final splat flat to
+    <root>/<trained>/<frame>.ply and deletes the work folder (checkpoints etc.)."""
+    import shutil
+
     folders = frame_folders(args.root, args.prefix)
     trained_root = os.path.join(args.root, args.trained)
-    prev_out = prev_name = None
+    work_root = os.path.join(args.root, "_lichtfeld_work")
+    os.makedirs(trained_root, exist_ok=True)
+    prev_final = None
     for i, (_, folder) in enumerate(folders):
         name = os.path.basename(folder)
-        out = os.path.join(trained_root, name)
-        os.makedirs(out, exist_ok=True)
-        cmd = [args.exe, "-d", folder, "-o", out, "-i", str(args.iter), "--headless",
+        work = os.path.join(work_root, name)
+        final = os.path.join(trained_root, f"{name}.ply")
+        shutil.rmtree(work, ignore_errors=True)
+        os.makedirs(work)
+        cmd = [args.exe, "-d", folder, "-o", work, "-i", str(args.iter), "--headless",
                "--output-name", name] + shlex.split(args.extra)
         if args.strategy:
             cmd += ["--strategy", args.strategy]
         if args.max_splats:
             cmd += ["--max-cap", str(args.max_splats)]
-        if args.init_from_previous and prev_out:
-            prev = find_splat(prev_out, prev_name)
-            if prev:
-                cmd += ["--init", prev]
+        if args.init_from_previous and prev_final and os.path.exists(prev_final):
+            cmd += ["--init", prev_final]
         print(f"[{i + 1}/{len(folders)}] {' '.join(cmd)}", flush=True)
-        if subprocess.call(cmd) != 0:
-            print(f"{name}: LichtFeld Studio returned an error")
-            if args.stop_on_error:
-                return 1
-        prev_out, prev_name = out, name
+        failed = subprocess.call(cmd) != 0
+        splat = find_splat(work, name)
+        if splat:
+            shutil.copyfile(splat, final)
+            print(f"  -> {final}")
+        else:
+            failed = True
+            print(f"  WARNING: no .ply produced for {name}")
+        if not args.keep_work:
+            shutil.rmtree(work, ignore_errors=True)
+        if failed and args.stop_on_error:
+            return 1
+        prev_final = final
+    if not args.keep_work:
+        try:
+            os.rmdir(work_root)
+        except OSError:
+            pass
     return 0
 
 
@@ -411,6 +430,7 @@ def main() -> int:
     t.add_argument("--strategy", default="mcmc", help="LichtFeld strategy (mcmc recommended for --max-splats)")
     t.add_argument("--extra", default="", help="extra LichtFeld arguments, e.g. \"--sh-degree 3\"")
     t.add_argument("--stop-on-error", action="store_true")
+    t.add_argument("--keep-work", action="store_true", help="keep LichtFeld work folders (checkpoints)")
     t.set_defaults(func=cmd_train)
 
     args = p.parse_args()

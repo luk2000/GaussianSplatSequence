@@ -78,8 +78,14 @@ Shot010/frame_0101/
   ```
   Nimm nur Flags auf, die `LichtFeld-Studio.exe --help` deiner Version auflistet (das aktuelle Release kennt z. B. kein `--export`).
 * **Max Splats** begrenzt die Anzahl der Gaussians pro Frame (`--max-cap`). Dafür steht **Strategy** standardmäßig auf `mcmc`.
-* **Init From Previous Frame** hängt `--init <Splat des Vorframes>` an. Das stabilisiert die Sequenz zeitlich und das Training konvergiert schneller. Das Skript nimmt den Pfad aus *Previous Splat Pattern*. Existiert der nicht, nimmt es die neueste `.ply` im Output-Ordner des Vorframes. Findet es gar keinen Splat, trainiert es ohne Init.
-* Ergebnis: `Shot010/trained/frame_0101/frame_0101.ply` usw.
+* **Init From Previous Frame** hängt `--init trained/<Vorframe>.ply` an. Das stabilisiert die Sequenz zeitlich und das Training konvergiert schneller. Fehlt der Splat des Vorframes, trainiert das Skript ohne Init.
+* Ergebnis, flach ohne Unterordner und Checkpoints:
+  ```
+  Shot010/trained/frame_0000.ply
+  Shot010/trained/frame_0001.ply
+  …
+  ```
+  LichtFeld trainiert jeden Frame in `Shot010/_lichtfeld_work/<frame>/`. Danach kopiert das Skript den fertigen Splat nach `trained/` und löscht den Arbeitsordner. Mit *Keep Training Work Folders* (erweiterte Optionen) bleiben die Arbeitsordner samt Checkpoints erhalten.
 
 Einzelnen Frame manuell in der GUI öffnen: in LichtFeld Studio den Ordner `frame_0101` als COLMAP-Datensatz laden.
 

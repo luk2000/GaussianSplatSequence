@@ -726,17 +726,24 @@ FGSSResult GSSPipeline::WriteTrainingScript(const UGSSSettings& Settings, FStrin
 	}
 	const TCHAR* NL = bWindows ? TEXT("\r\n") : TEXT("\n");
 
+	// LichtFeld trains into a temporary work folder per frame; afterwards only the final splat is
+	// copied flat to <Trained>/<frame>.ply and the work folder (checkpoints etc.) is deleted.
+	const FString WorkRoot = Root / TEXT("_lichtfeld_work");
+	Script += bWindows
+		? FString::Printf(TEXT("if not exist \"%s\" mkdir \"%s\"%s"), *Native(TrainedRoot), *Native(TrainedRoot), NL)
+		: FString::Printf(TEXT("mkdir -p \"%s\"%s"), *TrainedRoot, NL);
+
 	FString PrevName;
-	FString PrevOutput;
 	for (int32 Index = 0; Index < Frames.Num(); ++Index)
 	{
 		const FString& FrameDir = Frames[Index].Value;
 		const FString Name = FPaths::GetCleanFilename(FrameDir);
-		const FString Output = TrainedRoot / Name;
+		const FString Work = WorkRoot / Name;
+		const FString FinalPly = TrainedRoot / (Name + TEXT(".ply"));
 
 		FString Args = Settings.TrainArguments;
 		Args.ReplaceInline(TEXT("{data}"), *Native(FrameDir));
-		Args.ReplaceInline(TEXT("{output}"), *Native(Output));
+		Args.ReplaceInline(TEXT("{output}"), *Native(Work));
 		Args.ReplaceInline(TEXT("{name}"), *Name);
 		Args.ReplaceInline(TEXT("{iter}"), *FString::FromInt(Settings.Iterations));
 		Args = StripUnsupportedTrainArgs(Args);
@@ -749,49 +756,69 @@ FGSSResult GSSPipeline::WriteTrainingScript(const UGSSSettings& Settings, FStrin
 			Args += FString::Printf(TEXT(" --max-cap %d"), Settings.MaxSplats);
 		}
 
+		FString PrevSplat;
+		if (Settings.bInitFromPreviousFrame && !PrevName.IsEmpty())
+		{
+			PrevSplat = Settings.PreviousSplatPattern;
+			PrevSplat.ReplaceInline(TEXT("{prev_output}"), *TrainedRoot);
+			PrevSplat.ReplaceInline(TEXT("{prev_name}"), *PrevName);
+			PrevSplat = Native(PrevSplat);
+		}
+
 		Script += FString::Printf(TEXT("echo [%d/%d] %s%s"), Index + 1, Frames.Num(), *Name, NL);
 		if (bWindows)
 		{
-			Script += FString::Printf(TEXT("if not exist \"%s\" mkdir \"%s\"%s"), *Native(Output), *Native(Output), NL);
-		}
-		else
-		{
-			Script += FString::Printf(TEXT("mkdir -p \"%s\"%s"), *Output, NL);
-		}
-
-		if (Settings.bInitFromPreviousFrame && !PrevName.IsEmpty())
-		{
-			FString PrevSplat = Settings.PreviousSplatPattern;
-			PrevSplat.ReplaceInline(TEXT("{prev_output}"), *PrevOutput);
-			PrevSplat.ReplaceInline(TEXT("{prev_name}"), *PrevName);
-			PrevSplat = Native(PrevSplat);
-			// Prefer the expected file; otherwise fall back to the newest .ply of the previous frame.
-			if (bWindows)
+			const FString NWork = Native(Work);
+			const FString NFinal = Native(FinalPly);
+			Script += FString::Printf(TEXT("if exist \"%s\" rmdir /s /q \"%s\"%s"), *NWork, *NWork, NL);
+			Script += FString::Printf(TEXT("mkdir \"%s\"%s"), *NWork, NL);
+			if (!PrevSplat.IsEmpty())
 			{
-				const FString PrevDir = Native(PrevOutput);
-				Script += FString::Printf(TEXT("set \"PREV=\"%s"), NL);
-				Script += FString::Printf(TEXT("for /f \"delims=\" %%%%F in ('dir /b /s /o:d \"%s\\*.ply\" 2^>nul') do set \"PREV=%%%%F\"%s"), *PrevDir, NL);
-				Script += FString::Printf(TEXT("if exist \"%s\" set \"PREV=%s\"%s"), *PrevSplat, *PrevSplat, NL);
-				Script += FString::Printf(TEXT("if defined PREV (%s  %%LFS%% %s --init \"%%PREV%%\"%s) else (%s  %%LFS%% %s%s)%s"),
-					NL, *Args, NL, NL, *Args, NL, NL);
+				Script += FString::Printf(TEXT("if exist \"%s\" (%s  %%LFS%% %s --init \"%s\"%s) else (%s  %%LFS%% %s%s)%s"),
+					*PrevSplat, NL, *Args, *PrevSplat, NL, NL, *Args, NL, NL);
 			}
 			else
 			{
-				Script += FString::Printf(TEXT("PREV=$(find \"%s\" -name '*.ply' -printf '%%T@ %%p\\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)%s"), *PrevOutput, NL);
-				Script += FString::Printf(TEXT("if [ -f \"%s\" ]; then PREV=\"%s\"; fi%s"), *PrevSplat, *PrevSplat, NL);
-				Script += FString::Printf(TEXT("if [ -n \"$PREV\" ]; then \"$LFS\" %s --init \"$PREV\"; else \"$LFS\" %s; fi%s"),
-					*Args, *Args, NL);
+				Script += FString::Printf(TEXT("%%LFS%% %s%s"), *Args, NL);
+			}
+			// Pick <name>.ply if LichtFeld wrote it, otherwise the newest .ply anywhere in the work folder.
+			Script += FString::Printf(TEXT("set \"OUT=\"%s"), NL);
+			Script += FString::Printf(TEXT("for /f \"usebackq delims=\" %%%%F in (`powershell -NoProfile -Command \"(Get-ChildItem -LiteralPath '%s' -Recurse -Filter *.ply | Sort-Object LastWriteTime | Select-Object -Last 1).FullName\"`) do set \"OUT=%%%%F\"%s"), *NWork, NL);
+			Script += FString::Printf(TEXT("if exist \"%s\\%s.ply\" set \"OUT=%s\\%s.ply\"%s"), *NWork, *Name, *NWork, *Name, NL);
+			Script += FString::Printf(TEXT("if defined OUT (copy /y \"%%OUT%%\" \"%s\" >nul) else (echo   WARNING: no .ply produced for %s)%s"), *NFinal, *Name, NL);
+			if (!Settings.bKeepTrainingWorkFolders)
+			{
+				Script += FString::Printf(TEXT("rmdir /s /q \"%s\"%s"), *NWork, NL);
 			}
 		}
 		else
 		{
-			Script += bWindows
-				? FString::Printf(TEXT("%%LFS%% %s%s"), *Args, NL)
-				: FString::Printf(TEXT("\"$LFS\" %s%s"), *Args, NL);
+			Script += FString::Printf(TEXT("rm -rf \"%s\" && mkdir -p \"%s\"%s"), *Work, *Work, NL);
+			if (!PrevSplat.IsEmpty())
+			{
+				Script += FString::Printf(TEXT("if [ -f \"%s\" ]; then \"$LFS\" %s --init \"%s\"; else \"$LFS\" %s; fi%s"),
+					*PrevSplat, *Args, *PrevSplat, *Args, NL);
+			}
+			else
+			{
+				Script += FString::Printf(TEXT("\"$LFS\" %s%s"), *Args, NL);
+			}
+			Script += FString::Printf(TEXT("OUT=$(find \"%s\" -name '*.ply' -printf '%%T@ %%p\\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)%s"), *Work, NL);
+			Script += FString::Printf(TEXT("if [ -f \"%s/%s.ply\" ]; then OUT=\"%s/%s.ply\"; fi%s"), *Work, *Name, *Work, *Name, NL);
+			Script += FString::Printf(TEXT("if [ -n \"$OUT\" ]; then cp -f \"$OUT\" \"%s\"; else echo \"  WARNING: no .ply produced for %s\"; fi%s"), *FinalPly, *Name, NL);
+			if (!Settings.bKeepTrainingWorkFolders)
+			{
+				Script += FString::Printf(TEXT("rm -rf \"%s\"%s"), *Work, NL);
+			}
 		}
 
 		PrevName = Name;
-		PrevOutput = Output;
+	}
+	if (!Settings.bKeepTrainingWorkFolders)
+	{
+		Script += bWindows
+			? FString::Printf(TEXT("rmdir \"%s\" 2>nul%s"), *Native(WorkRoot), NL)
+			: FString::Printf(TEXT("rmdir \"%s\" 2>/dev/null%s"), *WorkRoot, NL);
 	}
 	Script += FString::Printf(TEXT("echo Done.%s"), NL);
 	if (bWindows)

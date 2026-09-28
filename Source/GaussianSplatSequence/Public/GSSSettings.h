@@ -197,13 +197,17 @@ public:
 	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training")
 	bool bInitFromPreviousFrame = false;
 
-	/** Location of the previous frame's splat. Tokens: {prev_output}, {prev_name}. If the file does not exist, the newest .ply in the previous frame's output folder is used. */
+	/** Location of the previous frame's splat. Tokens: {prev_output} (= trained folder), {prev_name}. */
 	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training", meta = (EditCondition = "bInitFromPreviousFrame"))
 	FString PreviousSplatPattern = TEXT("{prev_output}/{prev_name}.ply");
 
-	/** Training outputs go to <Output>/<TrainedSubfolder>/<frame name>. */
+	/** Final splats go flat to <Output>/<TrainedSubfolder>/<frame name>.ply. */
 	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training")
 	FString TrainedSubfolder = TEXT("trained");
+
+	/** Keep LichtFeld's per-frame work folders (<Output>/_lichtfeld_work/<frame>, incl. checkpoints) instead of deleting them after copying the splat. */
+	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training", AdvancedDisplay)
+	bool bKeepTrainingWorkFolders = false;
 
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override
