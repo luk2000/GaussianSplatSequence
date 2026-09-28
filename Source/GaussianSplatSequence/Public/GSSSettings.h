@@ -180,7 +180,7 @@ public:
 	 * {name} frame name, {iter} Iterations.
 	 */
 	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training")
-	FString TrainArguments = TEXT("-d \"{data}\" -o \"{output}\" -i {iter} --headless --output-name {name} --export ply");
+	FString TrainArguments = TEXT("-d \"{data}\" -o \"{output}\" -i {iter} --headless --output-name {name}");
 
 	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training", meta = (ClampMin = "1"))
 	int32 Iterations = 7000;
@@ -197,7 +197,7 @@ public:
 	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training")
 	bool bInitFromPreviousFrame = false;
 
-	/** Location of the previous frame's splat. Tokens: {prev_output}, {prev_name}. */
+	/** Location of the previous frame's splat. Tokens: {prev_output}, {prev_name}. If the file does not exist, the newest .ply in the previous frame's output folder is used. */
 	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training", meta = (EditCondition = "bInitFromPreviousFrame"))
 	FString PreviousSplatPattern = TEXT("{prev_output}/{prev_name}.ply");
 
