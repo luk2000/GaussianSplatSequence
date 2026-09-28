@@ -1,0 +1,29 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "Gaussian Splat Sequence",
+	"Description": "Exports Unreal cameras to COLMAP (LichtFeld Studio), turns rendered EXR depth into congruent point clouds and prepares per-frame Gaussian Splat training for camera sequences.",
+	"Category": "Editor",
+	"CreatedBy": "GaussianSplatSequence",
+	"CreatedByURL": "https://github.com/luk2000/GaussianSplatSequence",
+	"DocsURL": "https://github.com/luk2000/GaussianSplatSequence#readme",
+	"EngineVersion": "5.7.0",
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "GaussianSplatSequence",
+			"Type": "Editor",
+			"LoadingPhase": "PostEngineInit",
+			"PlatformAllowList": [ "Win64", "Linux", "Mac" ]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "LevelSequenceEditor",
+			"Enabled": true
+		}
+	]
+}

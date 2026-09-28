@@ -1,0 +1,8 @@
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+*.pdb
+__pycache__/
+*.pyc
+test_gss_math
