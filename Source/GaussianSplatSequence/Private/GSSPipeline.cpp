@@ -14,6 +14,7 @@
 #include "HAL/PlatformProcess.h"
 #include "ImageCore.h"
 #include "ImageUtils.h"
+#include "Internationalization/Regex.h"
 #include "LevelEditorViewport.h"
 #include "LevelSequence.h"
 #include "LevelSequenceEditorBlueprintLibrary.h"
@@ -285,6 +286,29 @@ namespace
 		}
 		Loaded.CopyTo(OutImage, Format, Gamma);
 		return true;
+	}
+
+	// Settings saved with an earlier plugin version may still contain "--export <fmt>",
+	// which released LichtFeld Studio builds reject ("Flag could not be matched: export").
+	FString StripUnsupportedTrainArgs(const FString& Args)
+	{
+		FString Result = Args;
+		const FRegexPattern Pattern(TEXT("(^|\\s)--export(=|\\s+)[^\\s\"]+"));
+		FRegexMatcher Matcher(Pattern, Args);
+		TArray<TPair<int32, int32>> Ranges;
+		while (Matcher.FindNext())
+		{
+			Ranges.Emplace(Matcher.GetMatchBeginning(), Matcher.GetMatchEnding());
+		}
+		for (int32 Index = Ranges.Num() - 1; Index >= 0; --Index)
+		{
+			Result.RemoveAt(Ranges[Index].Key, Ranges[Index].Value - Ranges[Index].Key);
+		}
+		if (Ranges.Num() > 0)
+		{
+			UE_LOG(LogGaussianSplatSequence, Warning, TEXT("Removed unsupported '--export' from the LichtFeld arguments. Please also delete it from Train Arguments."));
+		}
+		return Result;
 	}
 
 	float ReadChannel(const FLinearColor& C, EGSSDepthChannel Channel)
@@ -715,6 +739,7 @@ FGSSResult GSSPipeline::WriteTrainingScript(const UGSSSettings& Settings, FStrin
 		Args.ReplaceInline(TEXT("{output}"), *Native(Output));
 		Args.ReplaceInline(TEXT("{name}"), *Name);
 		Args.ReplaceInline(TEXT("{iter}"), *FString::FromInt(Settings.Iterations));
+		Args = StripUnsupportedTrainArgs(Args);
 		if (!Settings.Strategy.TrimStartAndEnd().IsEmpty() && !Args.Contains(TEXT("--strategy")))
 		{
 			Args += FString::Printf(TEXT(" --strategy %s"), *Settings.Strategy.TrimStartAndEnd());
