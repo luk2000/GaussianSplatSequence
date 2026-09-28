@@ -99,6 +99,9 @@ Einzelnen Frame manuell in der GUI öffnen: in LichtFeld Studio den Ordner `fram
   * *Right-handed Y up*: `x = UE.Y, y = UE.Z, z = −UE.X`
 * **Unit Scale** 0.01 = cm → m. Gilt für Kamera und Tiefe gleichermaßen.
 * Intrinsics: `fx = fy = (W/2) / tan(HFOV/2)`, `cx = W/2`, `cy = H/2`. Unreal hält das horizontale FOV (Standard *Maintain X-Axis FOV*). Bei CineCameras wird es direkt aus Filmback und Brennweite berechnet. Das Filmback-Seitenverhältnis sollte zur Render-Auflösung passen, das Plugin warnt sonst.
+* **Coordinate Space**:
+  * *World* (Standard): Die Kameras behalten ihren echten Pfad. Die Szene steht still, und die Splats aller Frames liegen deckungsgleich im selben Weltkoordinatensystem.
+  * *Camera Locked*: Jeder Frame bekommt dieselbe feste Kamerapose (*Locked Camera Location/Rotation*, Standard = Unreal-Ursprung, Blick entlang +X). Die Punktwolke und damit der Splat wird relativ zu dieser Kamera gespeichert. Aus diesem festen Blickpunkt abgespielt ergibt die Splat-Sequenz einen „3D-Film“ (wie SHARP): Die Kamerafahrt steckt in der Bewegung der Szene. Nach dem Umschalten Kameras neu exportieren, Depth neu konvertieren und neu trainieren. Die echte Kamera steht weiterhin in `ue_camera.txt`.
 * LichtFeld-Option `--centralize` bleibt aus (Default `off`). So bleiben alle Frames im selben Weltkoordinatensystem und die Splats einer Sequenz liegen deckungsgleich übereinander.
 
 ## Python-Tool (ohne Unreal)
