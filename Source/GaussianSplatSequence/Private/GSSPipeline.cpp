@@ -759,6 +759,14 @@ FGSSResult GSSPipeline::WriteTrainingScript(const UGSSSettings& Settings, FStrin
 		{
 			Args += FString::Printf(TEXT(" --max-cap %d"), Settings.MaxSplats);
 		}
+		if (Settings.ShDegree >= 0 && !Args.Contains(TEXT("--sh-degree ")) && !Args.Contains(TEXT("--sh-degree=")))
+		{
+			Args += FString::Printf(TEXT(" --sh-degree %d"), FMath::Clamp(Settings.ShDegree, 0, 3));
+		}
+		if (Settings.ShDegreeInterval > 0 && Settings.ShDegree != 0 && !Args.Contains(TEXT("--sh-degree-interval")))
+		{
+			Args += FString::Printf(TEXT(" --sh-degree-interval %d"), Settings.ShDegreeInterval);
+		}
 
 		FString PrevSplat;
 		if (Settings.bInitFromPreviousFrame && !PrevName.IsEmpty())

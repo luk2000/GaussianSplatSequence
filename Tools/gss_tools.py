@@ -359,6 +359,10 @@ def cmd_train(args) -> int:
             cmd += ["--strategy", args.strategy]
         if args.max_splats:
             cmd += ["--max-cap", str(args.max_splats)]
+        if args.sh_degree >= 0:
+            cmd += ["--sh-degree", str(args.sh_degree)]
+        if args.sh_degree_interval and args.sh_degree != 0:
+            cmd += ["--sh-degree-interval", str(args.sh_degree_interval)]
         if args.init_from_previous and prev_final and os.path.exists(prev_final):
             cmd += ["--init", prev_final]
         print(f"[{i + 1}/{len(folders)}] {' '.join(cmd)}", flush=True)
@@ -427,6 +431,9 @@ def main() -> int:
     t.add_argument("--iter", type=int, default=7000)
     t.add_argument("--init-from-previous", action="store_true")
     t.add_argument("--max-splats", type=int, default=0, help="max Gaussians per frame (--max-cap), 0 = default")
+    t.add_argument("--sh-degree", type=int, default=0, choices=[-1, 0, 1, 2, 3],
+                   help="max SH degree (0 = RGB only, recommended for single-view frames; -1 = LichtFeld default)")
+    t.add_argument("--sh-degree-interval", type=int, default=0, help="iterations between SH degree steps (0 = default)")
     t.add_argument("--strategy", default="mcmc", help="LichtFeld strategy (mcmc recommended for --max-splats)")
     t.add_argument("--extra", default="", help="extra LichtFeld arguments, e.g. \"--sh-degree 3\"")
     t.add_argument("--stop-on-error", action="store_true")

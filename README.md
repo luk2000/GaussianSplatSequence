@@ -78,6 +78,8 @@ Shot010/frame_0101/
   ```
   Nimm nur Flags auf, die `LichtFeld-Studio.exe --help` deiner Version auflistet (das aktuelle Release kennt z. B. kein `--export`).
 * **Max Splats** begrenzt die Anzahl der Gaussians pro Frame (`--max-cap`). Dafür steht **Strategy** standardmäßig auf `mcmc`.
+* **SH Degree** (`--sh-degree`, Standard **0**): 0 = nur RGB pro Splat (56 statt 236 Bytes). Aus einer einzigen Kamera lässt sich blickwinkelabhängige Farbe ohnehin nicht lernen, und die Sequenz wird ~4× kleiner. -1 = LichtFeld-Standard (3). **SH Degree Interval** (`--sh-degree-interval`) gilt nur bei SH > 0.
+* Richtwert für Playback in Unreal: ~300k Splats pro Frame mit SH 0 (≈ 17 MB/Frame unkomprimiert, ≈ 500 MB/s bei 30 fps).
 * **Init From Previous Frame** hängt `--init trained/<Vorframe>.ply` an. Das stabilisiert die Sequenz zeitlich und das Training konvergiert schneller. Fehlt der Splat des Vorframes, trainiert das Skript ohne Init.
 * Ergebnis, flach ohne Unterordner und Checkpoints:
   ```

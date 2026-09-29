@@ -218,6 +218,18 @@ public:
 	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training")
 	FString Strategy = TEXT("mcmc");
 
+	/**
+	 * Max spherical-harmonics degree (--sh-degree), -1 = LichtFeld default (3).
+	 * 0 = plain RGB per splat (56 bytes instead of 236) - recommended for single-view frames, since
+	 * view-dependent colour cannot be learned from one camera anyway, and for streaming sequences.
+	 */
+	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training", meta = (ClampMin = "-1", ClampMax = "3"))
+	int32 ShDegree = 0;
+
+	/** Iterations between SH degree increases (--sh-degree-interval). 0 = LichtFeld default. Only relevant for SH Degree > 0. */
+	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training", meta = (ClampMin = "0", EditCondition = "ShDegree != 0"))
+	int32 ShDegreeInterval = 0;
+
 	/** Initialise frame N with the trained splat of frame N-1 (--init). Gives temporally more stable sequences and faster convergence. */
 	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training")
 	bool bInitFromPreviousFrame = false;
