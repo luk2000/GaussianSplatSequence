@@ -737,6 +737,38 @@ FGSSResult GSSPipeline::WriteTrainingScript(const UGSSSettings& Settings, FStrin
 		? FString::Printf(TEXT("if not exist \"%s\" mkdir \"%s\"%s"), *Native(TrainedRoot), *Native(TrainedRoot), NL)
 		: FString::Printf(TEXT("mkdir -p \"%s\"%s"), *TrainedRoot, NL);
 
+	// Background (--bg-mode). The color is quoted because '#' would start a comment in bash.
+	FString BackgroundArgs;
+	switch (Settings.BackgroundMode)
+	{
+	case EGSSBackgroundMode::Modulation:
+		BackgroundArgs = TEXT(" --bg-mode modulation");
+		break;
+	case EGSSBackgroundMode::Random:
+		BackgroundArgs = TEXT(" --bg-mode random");
+		break;
+	case EGSSBackgroundMode::Image:
+	{
+		FString Image = Settings.BackgroundImage.FilePath;
+		if (Image.IsEmpty())
+		{
+			return FGSSResult::Error(TEXT("Background Mode is Image: set a Background Image first."));
+		}
+		Image = FPaths::ConvertRelativePathToFull(Image);
+		if (!FPaths::FileExists(Image))
+		{
+			return FGSSResult::Error(FString::Printf(TEXT("Background image not found: %s"), *Image));
+		}
+		BackgroundArgs = FString::Printf(TEXT(" --bg-mode image --bg-image-path \"%s\""), *Native(Image));
+		break;
+	}
+	case EGSSBackgroundMode::Color:
+	default:
+		BackgroundArgs = FString::Printf(TEXT(" --bg-mode solidcolor --bg-color \"#%02X%02X%02X\""),
+			Settings.BackgroundColor.R, Settings.BackgroundColor.G, Settings.BackgroundColor.B);
+		break;
+	}
+
 	FString PrevName;
 	for (int32 Index = 0; Index < Frames.Num(); ++Index)
 	{
@@ -766,6 +798,10 @@ FGSSResult GSSPipeline::WriteTrainingScript(const UGSSSettings& Settings, FStrin
 		if (Settings.ShDegreeInterval > 0 && Settings.ShDegree != 0 && !Args.Contains(TEXT("--sh-degree-interval")))
 		{
 			Args += FString::Printf(TEXT(" --sh-degree-interval %d"), Settings.ShDegreeInterval);
+		}
+		if (!Args.Contains(TEXT("--bg-mode")))
+		{
+			Args += BackgroundArgs;
 		}
 
 		FString PrevSplat;

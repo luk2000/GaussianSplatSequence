@@ -24,6 +24,16 @@ enum class EGSSCoordinateSpace : uint8
 	CameraLocked UMETA(DisplayName = "Camera Locked (camera fixed, 3D film)"),
 };
 
+/** LichtFeld --bg-mode. */
+UENUM()
+enum class EGSSBackgroundMode : uint8
+{
+	Color      UMETA(DisplayName = "Color (solid color)"),
+	Modulation UMETA(DisplayName = "Modulation"),
+	Image      UMETA(DisplayName = "Image"),
+	Random     UMETA(DisplayName = "Random"),
+};
+
 UENUM()
 enum class EGSSCameraSource : uint8
 {
@@ -229,6 +239,18 @@ public:
 	/** Iterations between SH degree increases (--sh-degree-interval). 0 = LichtFeld default. Only relevant for SH Degree > 0. */
 	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training", meta = (ClampMin = "0", EditCondition = "ShDegree != 0"))
 	int32 ShDegreeInterval = 0;
+
+	/** Background used while training (--bg-mode): solid Color, Modulation, Image or Random. */
+	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training")
+	EGSSBackgroundMode BackgroundMode = EGSSBackgroundMode::Color;
+
+	/** Background color for mode Color (--bg-color, default black). */
+	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training", meta = (EditCondition = "BackgroundMode == EGSSBackgroundMode::Color", EditConditionHides, HideAlphaChannel))
+	FColor BackgroundColor = FColor::Black;
+
+	/** Background image for mode Image (--bg-image-path). */
+	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training", meta = (EditCondition = "BackgroundMode == EGSSBackgroundMode::Image", EditConditionHides))
+	FFilePath BackgroundImage;
 
 	/** Initialise frame N with the trained splat of frame N-1 (--init). Gives temporally more stable sequences and faster convergence. */
 	UPROPERTY(EditAnywhere, config, Category = "6 | LichtFeld Training")

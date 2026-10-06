@@ -337,6 +337,25 @@ def find_splat(output_dir: str, name: str) -> str | None:
     return plys[-1] if plys else None
 
 
+BG_MODES = {"color": "solidcolor", "modulation": "modulation", "image": "image", "random": "random"}
+
+
+def background_args(args) -> list[str]:
+    """LichtFeld --bg-mode / --bg-color / --bg-image-path."""
+    mode = BG_MODES[args.bg_mode]
+    out = ["--bg-mode", mode]
+    if mode == "solidcolor":
+        color = args.bg_color if args.bg_color.startswith("#") else "#" + args.bg_color
+        if not re.fullmatch(r"#[0-9A-Fa-f]{6}", color):
+            raise SystemExit(f"--bg-color must be #RRGGBB, got {args.bg_color}")
+        out += ["--bg-color", color]
+    elif mode == "image":
+        if not args.bg_image or not os.path.isfile(args.bg_image):
+            raise SystemExit(f"--bg-mode image needs an existing --bg-image (got {args.bg_image!r})")
+        out += ["--bg-image-path", os.path.abspath(args.bg_image)]
+    return out
+
+
 def cmd_train(args) -> int:
     """Trains into <root>/_lichtfeld_work/<frame>, copies the final splat flat to
     <root>/<trained>/<frame>.ply and deletes the work folder (checkpoints etc.)."""
@@ -363,6 +382,7 @@ def cmd_train(args) -> int:
             cmd += ["--sh-degree", str(args.sh_degree)]
         if args.sh_degree_interval and args.sh_degree != 0:
             cmd += ["--sh-degree-interval", str(args.sh_degree_interval)]
+        cmd += background_args(args)
         if args.init_from_previous and prev_final and os.path.exists(prev_final):
             cmd += ["--init", prev_final]
         print(f"[{i + 1}/{len(folders)}] {' '.join(cmd)}", flush=True)
@@ -434,6 +454,9 @@ def main() -> int:
     t.add_argument("--sh-degree", type=int, default=0, choices=[-1, 0, 1, 2, 3],
                    help="max SH degree (0 = RGB only, recommended for single-view frames; -1 = LichtFeld default)")
     t.add_argument("--sh-degree-interval", type=int, default=0, help="iterations between SH degree steps (0 = default)")
+    t.add_argument("--bg-mode", choices=sorted(BG_MODES), default="color", help="training background")
+    t.add_argument("--bg-color", default="#000000", help="background color for --bg-mode color (#RRGGBB)")
+    t.add_argument("--bg-image", help="background image for --bg-mode image")
     t.add_argument("--strategy", default="mcmc", help="LichtFeld strategy (mcmc recommended for --max-splats)")
     t.add_argument("--extra", default="", help="extra LichtFeld arguments, e.g. \"--sh-degree 3\"")
     t.add_argument("--stop-on-error", action="store_true")
