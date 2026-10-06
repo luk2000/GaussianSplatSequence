@@ -196,6 +196,26 @@ public:
 	UPROPERTY(EditAnywhere, config, Category = "5 | Depth To Point Cloud", meta = (ClampMin = "0"))
 	int32 MaxPoints = 0;
 
+	/**
+	 * Radial falloff: full point density in the image centre, thinning out towards the image border
+	 * ("frayed" edges, fewer splats near the frame border). Uses a fixed per-pixel pattern, so the
+	 * selection is identical in every frame (no flicker).
+	 */
+	UPROPERTY(EditAnywhere, config, Category = "5 | Depth To Point Cloud")
+	bool bRadialFalloff = false;
+
+	/** Normalised radius (0 = centre, 1 = middle of the image edges) up to which density stays at 100 %. */
+	UPROPERTY(EditAnywhere, config, Category = "5 | Depth To Point Cloud", meta = (EditCondition = "bRadialFalloff", ClampMin = "0", ClampMax = "0.99", UIMin = "0", UIMax = "0.99"))
+	double FalloffInnerRadius = 0.4;
+
+	/** Fraction of points kept at the image edge and in the corners (0 = none, 1 = no falloff). */
+	UPROPERTY(EditAnywhere, config, Category = "5 | Depth To Point Cloud", meta = (EditCondition = "bRadialFalloff", ClampMin = "0", ClampMax = "1", UIMin = "0", UIMax = "1"))
+	double FalloffEdgeDensity = 0.05;
+
+	/** Shape of the falloff: 1 = linear, > 1 = density drops quickly after the inner radius, < 1 = stays dense longer. */
+	UPROPERTY(EditAnywhere, config, Category = "5 | Depth To Point Cloud", meta = (EditCondition = "bRadialFalloff", ClampMin = "0.1", ClampMax = "8", UIMin = "0.25", UIMax = "4"))
+	double FalloffExponent = 2.0;
+
 	/** Drop pixels on depth discontinuities (relative depth jump to a neighbour). Removes "flying" points on silhouettes. 0 disables. */
 	UPROPERTY(EditAnywhere, config, Category = "5 | Depth To Point Cloud", meta = (ClampMin = "0"))
 	double EdgeThreshold = 0.05;

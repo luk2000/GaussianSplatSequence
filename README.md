@@ -68,6 +68,7 @@ Shot010/frame_0101/
 | Min/Max Depth | 1 / 100000 cm | Himmel und zu nahe Pixel verwerfen. |
 | Pixel Stride | 2 | Nur jeden n-ten Pixel verwenden (1920×1080, Stride 2 ≈ 520k Punkte). |
 | Max Points | 0 | Obergrenze Punkte pro Frame (0 = aus). Überzählige Punkte werden zufällig-gleichmäßig ausgedünnt. Mit Stride 1 + Max Points bekommst du ein festes Punktbudget, unabhängig von der EXR-Auflösung. |
+| Radial Falloff | aus | Punktdichte zur Bildmitte hin voll, zum Rand hin „ausgefranst“: bis *Falloff Inner Radius* (0 = Mitte, 1 = Bildrand) bleiben 100 % der Punkte, danach fällt die Dichte bis auf *Falloff Edge Density* am Rand bzw. in den Ecken ab. *Falloff Exponent* formt die Kurve (1 = linear, > 1 = fällt schneller ab). Das Muster ist pro Pixel fest und deshalb in jedem Frame identisch (kein Flackern). Max Points wird danach angewendet. |
 | Edge Threshold | 0.05 | Pixel mit > 5 % Tiefensprung zum Nachbarn verwerfen (fliegende Punkte). |
 
 ### 4. Training in LichtFeld Studio

@@ -315,6 +315,35 @@ namespace
 		return Result;
 	}
 
+	// Stable pseudo-random value in [0, 1) per pixel, identical in every frame (and in gss_tools.py).
+	double PixelHash01(uint32 X, uint32 Y)
+	{
+		uint32 H = (X * 0x8da6b343u) ^ (Y * 0xd8163841u);
+		H ^= H >> 16;
+		H *= 0x7feb352du;
+		H ^= H >> 15;
+		H *= 0x846ca68bu;
+		H ^= H >> 16;
+		return static_cast<double>(H >> 8) * (1.0 / 16777216.0);
+	}
+
+	// Probability of keeping a pixel for the radial falloff. R is measured on an ellipse that touches
+	// the middle of the image edges (R = 1); the corners (R ~ 1.41) are clamped to the edge density.
+	double RadialKeepProbability(const UGSSSettings& Settings, int32 X, int32 Y, int32 Width, int32 Height)
+	{
+		const double NX = ((X + 0.5) / Width - 0.5) * 2.0;
+		const double NY = ((Y + 0.5) / Height - 0.5) * 2.0;
+		const double R = FMath::Sqrt(NX * NX + NY * NY);
+		const double Inner = FMath::Clamp(Settings.FalloffInnerRadius, 0.0, 0.99);
+		if (R <= Inner)
+		{
+			return 1.0;
+		}
+		const double T = FMath::Clamp((R - Inner) / (1.0 - Inner), 0.0, 1.0);
+		const double Edge = FMath::Clamp(Settings.FalloffEdgeDensity, 0.0, 1.0);
+		return Edge + (1.0 - Edge) * FMath::Pow(1.0 - T, FMath::Max(0.1, Settings.FalloffExponent));
+	}
+
 	float ReadChannel(const FLinearColor& C, EGSSDepthChannel Channel)
 	{
 		switch (Channel)
@@ -535,6 +564,11 @@ FGSSResult GSSPipeline::ConvertDepthForFrame(const UGSSSettings& Settings, const
 		{
 			const double D = DepthAt(X, Y);
 			if (!IsValidDepth(D))
+			{
+				continue;
+			}
+
+			if (Settings.bRadialFalloff && PixelHash01(X, Y) >= RadialKeepProbability(Settings, X, Y, DW, DH))
 			{
 				continue;
 			}

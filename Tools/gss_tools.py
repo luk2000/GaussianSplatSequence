@@ -178,14 +178,43 @@ def read_color(path: str) -> np.ndarray:
 # ----------------------------------------------------------------------------- core math
 
 
+def pixel_hash01(xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
+    """Same per-pixel hash as PixelHash01 in GSSPipeline.cpp (stable across frames)."""
+    with np.errstate(over="ignore"):
+        h = (xs.astype(np.uint32) * np.uint32(0x8DA6B343)) ^ (ys.astype(np.uint32) * np.uint32(0xD8163841))
+        h ^= h >> np.uint32(16)
+        h *= np.uint32(0x7FEB352D)
+        h ^= h >> np.uint32(15)
+        h *= np.uint32(0x846CA68B)
+        h ^= h >> np.uint32(16)
+    return (h >> np.uint32(8)).astype(np.float64) / 16777216.0
+
+
+def radial_keep_probability(w: int, h: int, inner: float, edge: float, exponent: float) -> np.ndarray:
+    """Same as RadialKeepProbability in GSSPipeline.cpp. Returns an HxW map."""
+    ys, xs = np.mgrid[0:h, 0:w]
+    nx = ((xs + 0.5) / w - 0.5) * 2.0
+    ny = ((ys + 0.5) / h - 0.5) * 2.0
+    r = np.sqrt(nx * nx + ny * ny)
+    inner = min(max(inner, 0.0), 0.99)
+    edge = min(max(edge, 0.0), 1.0)
+    t = np.clip((r - inner) / (1.0 - inner), 0.0, 1.0)
+    p = edge + (1.0 - edge) * np.power(1.0 - t, max(0.1, exponent))
+    return np.where(r <= inner, 1.0, p)
+
+
 def unproject(cam: Camera, depth: np.ndarray, depth_type: str = "planar", unit_scale: float = 0.01,
               depth_to_ue: float = 1.0, min_depth: float = 1.0, max_depth: float = 1e5,
-              stride: int = 1, edge_threshold: float = 0.05):
-    """Same as GSSPipeline::ConvertDepthForFrame. Returns (world_xyz Nx3, pixel_xy Nx2)."""
+              stride: int = 1, edge_threshold: float = 0.05, falloff=None):
+    """Same as GSSPipeline::ConvertDepthForFrame. Returns (world_xyz Nx3, pixel_xy Nx2).
+    falloff: None or (inner_radius, edge_density, exponent) for the radial density falloff."""
     h, w = depth.shape
     k = cam.rescaled(w, h)
     d = depth * depth_to_ue  # Unreal units
     valid = np.isfinite(d) & (d >= min_depth) & (d <= max_depth)
+    if falloff is not None:
+        ys_all, xs_all = np.mgrid[0:h, 0:w]
+        valid &= pixel_hash01(xs_all, ys_all) < radial_keep_probability(w, h, *falloff)
     if edge_threshold > 0:
         edge = np.zeros_like(valid)
         for dy, dx in ((0, 1), (0, -1), (1, 0), (-1, 0)):
@@ -259,7 +288,9 @@ def convert_frame(frame_dir: str, frame: int, args) -> int:
 
     depth = read_exr_channel(resolve(args.depth, frame, args.padding, args.offset, name), args.depth_channel)
     world, pix = unproject(cam, depth, args.depth_type, unit_scale, args.depth_to_ue,
-                           args.min_depth, args.max_depth, args.stride, args.edge_threshold)
+                           args.min_depth, args.max_depth, args.stride, args.edge_threshold,
+                           falloff=(args.falloff_inner, args.falloff_edge, args.falloff_exponent)
+                           if args.radial_falloff else None)
 
     if args.max_points and len(world) > args.max_points:
         keep = np.random.default_rng(1337).choice(len(world), args.max_points, replace=False)
@@ -432,6 +463,10 @@ def main() -> int:
     c.add_argument("--max-depth", type=float, default=1e5)
     c.add_argument("--stride", type=int, default=2)
     c.add_argument("--edge-threshold", type=float, default=0.05)
+    c.add_argument("--radial-falloff", action="store_true", help="dense in the image centre, thinning out to the border")
+    c.add_argument("--falloff-inner", type=float, default=0.4, help="radius (0=centre, 1=edge) with full density")
+    c.add_argument("--falloff-edge", type=float, default=0.05, help="fraction of points kept at the border")
+    c.add_argument("--falloff-exponent", type=float, default=2.0, help="falloff curve (1=linear, >1 drops faster)")
     c.add_argument("--max-points", type=int, default=0, help="random uniform thinning to at most N points (0 = off)")
     c.add_argument("--text-only", action="store_true")
     depth_args(c)

@@ -126,11 +126,47 @@ def run_case(tmp, name, loc, rot, radial):
     print(f"{name}: {len(pts)} points OK")
 
 
+def run_falloff_case(tmp):
+    """Radial falloff: centre fully kept, border thinned to ~edge density, identical across runs."""
+    name = "frame_0100"
+    frame_dir = os.path.join(tmp, name)
+    fwd, right, up = ue_axes(-40, 0, 0)  # looking down at the floor -> every pixel valid
+    loc = np.array([0, 0, 500.0])
+    fx = export_frame(frame_dir, loc, fwd, right, up)
+    depth, _ = render_depth(loc, fwd, right, up, fx, radial=False)
+    exr = os.path.join(tmp, name + ".exr")
+    write_exr(exr, depth)
+    cmd = [sys.executable, TOOLS, "convert", "--frame", frame_dir, "--depth", exr, "--stride", "1",
+           "--edge-threshold", "0", "--max-depth", "1e7", "--text-only",
+           "--radial-falloff", "--falloff-inner", "0.4", "--falloff-edge", "0.05", "--falloff-exponent", "2"]
+
+    def pixels():
+        subprocess.check_call(cmd, stdout=subprocess.DEVNULL)
+        cam = gss_tools.read_camera(os.path.join(frame_dir, "sparse", "0"))
+        u, v, _ = gss_tools.project(cam, gss_tools.read_ply_xyz(os.path.join(frame_dir, "points.ply")))
+        return np.floor(u).astype(int), np.floor(v).astype(int)
+
+    u, v = pixels()
+    assert np.isfinite(depth).all(), "test scene must cover the whole image"
+    nx, ny = ((u + 0.5) / W - 0.5) * 2, ((v + 0.5) / H - 0.5) * 2
+    r = np.sqrt(nx * nx + ny * ny)
+    ys, xs = np.mgrid[0:H, 0:W]
+    rr = np.sqrt((((xs + 0.5) / W - 0.5) * 2) ** 2 + (((ys + 0.5) / H - 0.5) * 2) ** 2)
+    centre = np.count_nonzero(r < 0.4) / np.count_nonzero(rr < 0.4)
+    border = np.count_nonzero(r > 1.0) / np.count_nonzero(rr > 1.0)
+    assert centre == 1.0, f"centre density {centre}"
+    assert 0.02 < border < 0.09, f"border density {border}"
+    u2, v2 = pixels()
+    assert np.array_equal(np.sort(u * H + v), np.sort(u2 * H + v2)), "falloff pattern must be deterministic"
+    print(f"{name}: radial falloff OK (centre {centre:.0%}, border {border:.1%})")
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         run_case(tmp, "frame_0000", (0, 0, 170), (-10, 0, 0), radial=False)
         run_case(tmp, "frame_0001", (-400, 250, 300), (-25, 20, 5), radial=False)
         run_case(tmp, "frame_0002", (100, -300, 220), (-15, -30, -8), radial=True)
+        run_falloff_case(tmp)
     print("All gss_tools tests passed.")
 
 
