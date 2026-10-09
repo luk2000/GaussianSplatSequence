@@ -355,6 +355,72 @@ namespace
 		default:                  return C.R;
 		}
 	}
+
+	// Reference depth (Unreal units) of one depth EXR for the relative depth mode. Returns <= 0 on failure.
+	double ComputeDepthReference(const UGSSSettings& Settings, const FString& DepthPath, FString& OutError)
+	{
+		FImage Depth;
+		if (!LoadImageAs(DepthPath, ERawImageFormat::RGBA32F, EGammaSpace::Linear, Depth, OutError))
+		{
+			return -1.0;
+		}
+		const int32 W = Depth.SizeX;
+		const int32 H = Depth.SizeY;
+		const TArrayView64<FLinearColor> Pixels = Depth.AsRGBA32F();
+
+		const bool bCenter = Settings.RelativeDepthReference == EGSSRelativeDepthReference::CenterMedian;
+		const int32 X0 = bCenter ? W / 3 : 0;
+		const int32 X1 = bCenter ? W - W / 3 : W;
+		const int32 Y0 = bCenter ? H / 3 : 0;
+		const int32 Y1 = bCenter ? H - H / 3 : H;
+
+		TArray<double> Values;
+		Values.Reserve(((X1 - X0) / 4 + 1) * ((Y1 - Y0) / 4 + 1));
+		for (int32 Y = Y0; Y < Y1; Y += 4)
+		{
+			for (int32 X = X0; X < X1; X += 4)
+			{
+				const double D = static_cast<double>(ReadChannel(Pixels[static_cast<int64>(Y) * W + X], Settings.DepthChannel)) * Settings.DepthToUnrealUnits;
+				if (FMath::IsFinite(D) && D >= Settings.MinDepth && D <= Settings.MaxDepth)
+				{
+					Values.Add(D);
+				}
+			}
+		}
+		if (Values.Num() == 0)
+		{
+			OutError = FString::Printf(TEXT("No valid depth for the relative depth reference in %s"), *DepthPath);
+			return -1.0;
+		}
+		Values.Sort();
+		const double Quantile = Settings.RelativeDepthReference == EGSSRelativeDepthReference::Nearest ? 0.05 : 0.5;
+		return Values[FMath::Clamp(static_cast<int32>(Quantile * (Values.Num() - 1)), 0, Values.Num() - 1)];
+	}
+
+	// Geometric mean over +/- Radius frames, ignoring frames without a reference (<= 0).
+	TArray<double> SmoothDepthReferences(const TArray<double>& References, int32 Radius)
+	{
+		TArray<double> Smoothed;
+		Smoothed.Init(-1.0, References.Num());
+		for (int32 Index = 0; Index < References.Num(); ++Index)
+		{
+			double LogSum = 0.0;
+			int32 Count = 0;
+			for (int32 Other = FMath::Max(0, Index - Radius); Other <= FMath::Min(References.Num() - 1, Index + Radius); ++Other)
+			{
+				if (References[Other] > 0.0)
+				{
+					LogSum += FMath::Loge(References[Other]);
+					++Count;
+				}
+			}
+			if (Count > 0)
+			{
+				Smoothed[Index] = FMath::Exp(LogSum / Count);
+			}
+		}
+		return Smoothed;
+	}
 }
 
 // ====================================================================== public
@@ -479,10 +545,24 @@ FGSSResult GSSPipeline::ExportCameraSequence(const UGSSSettings& Settings)
 	return FGSSResult::Ok(FString::Printf(TEXT("Exported %d camera(s), frames %d-%d, to %s"), Exported, First, Last, *GetOutputRoot(Settings)));
 }
 
-FGSSResult GSSPipeline::ConvertDepthForFrame(const UGSSSettings& Settings, const FString& FrameDir, int32 FrameNumber)
+FGSSResult GSSPipeline::ConvertDepthForFrame(const UGSSSettings& Settings, const FString& FrameDir, int32 FrameNumber, double DepthScale)
 {
 	const FString SparseDir = FrameDir / TEXT("sparse") / TEXT("0");
 	const FString FrameName = FPaths::GetCleanFilename(FrameDir);
+
+	if (DepthScale <= 0.0)
+	{
+		DepthScale = 1.0;
+		if (Settings.bRelativeDepth && Settings.RelativeDepthTarget > 0.0)
+		{
+			FString RefError;
+			const double Reference = ComputeDepthReference(Settings, ResolveRenderPattern(Settings, Settings.DepthExrPattern, FrameNumber), RefError);
+			if (Reference > 0.0)
+			{
+				DepthScale = Settings.RelativeDepthTarget / Reference;
+			}
+		}
+	}
 
 	// The camera is read back from the exported COLMAP files, so points and camera
 	// are guaranteed to use the very same pose and intrinsics.
@@ -592,7 +672,8 @@ FGSSResult GSSPipeline::ConvertDepthForFrame(const UGSSSettings& Settings, const
 				}
 			}
 
-			const GSS::Vec3 World = GSS::UnprojectPixel(K, Pose, X, Y, D * Settings.UnitScale, DepthType);
+			// DepthScale (relative depth) moves the point along its camera ray: same pixel, new distance.
+			const GSS::Vec3 World = GSS::UnprojectPixel(K, Pose, X, Y, D * DepthScale * Settings.UnitScale, DepthType);
 
 			FGSSColmapPoint& P = Points.AddDefaulted_GetRef();
 			P.X = World.X;
@@ -640,7 +721,10 @@ FGSSResult GSSPipeline::ConvertDepthForFrame(const UGSSSettings& Settings, const
 		return FGSSResult::Error(Error);
 	}
 
-	return FGSSResult::Ok(FString::Printf(TEXT("%s: %d points (%d valid pixels, depth %dx%d)"), *FrameName, Points.Num(), NumValid, DW, DH));
+	// Record the applied depth scale (1 = absolute depth) so tools like gss_tools.py check can undo it.
+	FFileHelper::SaveStringToFile(FString::Printf(TEXT("%.10g\n"), DepthScale), *(FrameDir / TEXT("depth_scale.txt")));
+
+	return FGSSResult::Ok(FString::Printf(TEXT("%s: %d points (%d valid pixels, depth %dx%d, depth scale %.4f)"), *FrameName, Points.Num(), NumValid, DW, DH, DepthScale));
 }
 
 TArray<TPair<int32, FString>> GSSPipeline::FindFrameFolders(const UGSSSettings& Settings)
@@ -683,21 +767,62 @@ FGSSResult GSSPipeline::ConvertDepthForAllFrames(const UGSSSettings& Settings)
 		return FGSSResult::Error(TEXT("No exported frames found. Export the cameras first."));
 	}
 
-	FScopedSlowTask Task(static_cast<float>(Frames.Num()), LOCTEXT("ConvertingDepth", "Converting depth to point clouds..."));
+	const bool bRelative = Settings.bRelativeDepth;
+	FScopedSlowTask Task(static_cast<float>(Frames.Num() * (bRelative ? 2 : 1)), LOCTEXT("ConvertingDepth", "Converting depth to point clouds..."));
 	Task.MakeDialog(/*bShowCancelButton*/ true);
 
-	int32 Converted = 0;
-	int64 TotalPoints = 0;
-	FString FirstError;
-	for (const TPair<int32, FString>& Frame : Frames)
+	// Relative depth, pass 1: reference depth per frame, smoothed over time, mapped to one target distance.
+	TArray<double> Scales;
+	Scales.Init(1.0, Frames.Num());
+	if (bRelative)
 	{
+		TArray<double> References;
+		References.Init(-1.0, Frames.Num());
+		for (int32 Index = 0; Index < Frames.Num(); ++Index)
+		{
+			if (Task.ShouldCancel())
+			{
+				return FGSSResult::Error(TEXT("Cancelled."));
+			}
+			Task.EnterProgressFrame(1.0f, FText::Format(LOCTEXT("MeasuringDepth", "Measuring depth {0}"), FText::FromString(FPaths::GetCleanFilename(Frames[Index].Value))));
+			FString RefError;
+			References[Index] = ComputeDepthReference(Settings, ResolveRenderPattern(Settings, Settings.DepthExrPattern, Frames[Index].Key), RefError);
+			if (References[Index] <= 0.0)
+			{
+				UE_LOG(LogGaussianSplatSequence, Warning, TEXT("%s"), *RefError);
+			}
+		}
+
+		const TArray<double> Smoothed = SmoothDepthReferences(References, FMath::Max(0, Settings.RelativeDepthSmoothing));
+		double Target = Settings.RelativeDepthTarget;
+		for (int32 Index = 0; Index < Smoothed.Num() && Target <= 0.0; ++Index)
+		{
+			Target = Smoothed[Index]; // 0 = first frame's (smoothed) reference
+		}
+		if (Target <= 0.0)
+		{
+			return FGSSResult::Error(TEXT("Relative depth: no frame has valid depth to measure."));
+		}
+		for (int32 Index = 0; Index < Frames.Num(); ++Index)
+		{
+			Scales[Index] = Smoothed[Index] > 0.0 ? Target / Smoothed[Index] : 1.0;
+		}
+		UE_LOG(LogGaussianSplatSequence, Display, TEXT("Relative depth: target %.1f cm (%s)."), Target,
+			Settings.RelativeDepthTarget > 0.0 ? TEXT("fixed") : TEXT("first frame"));
+	}
+
+	int32 Converted = 0;
+	FString FirstError;
+	for (int32 Index = 0; Index < Frames.Num(); ++Index)
+	{
+		const TPair<int32, FString>& Frame = Frames[Index];
 		if (Task.ShouldCancel())
 		{
 			break;
 		}
 		Task.EnterProgressFrame(1.0f, FText::FromString(FPaths::GetCleanFilename(Frame.Value)));
 
-		const FGSSResult Result = ConvertDepthForFrame(Settings, Frame.Value, Frame.Key);
+		const FGSSResult Result = ConvertDepthForFrame(Settings, Frame.Value, Frame.Key, Scales[Index]);
 		UE_LOG(LogGaussianSplatSequence, Display, TEXT("%s"), *Result.Message);
 		if (Result.bSuccess)
 		{

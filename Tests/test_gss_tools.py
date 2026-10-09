@@ -161,12 +161,53 @@ def run_falloff_case(tmp):
     print(f"{name}: radial falloff OK (centre {centre:.0%}, border {border:.1%})")
 
 
+def run_relative_depth_case(tmp):
+    """Camera Locked dolly-out: absolute depth lets the scene drift away from the fixed viewer,
+    relative depth keeps the reference (centre median) at the first frame's distance and every
+    point stays on its own pixel ray."""
+    root = os.path.join(tmp, "dolly")
+    os.makedirs(root)
+    fwd, right, up = ue_axes(0, 0, 0)  # level camera looking at the wall at X=3000
+    zero = np.zeros(3)
+    distances = {}
+    for i, x in enumerate((0.0, -400.0, -800.0, -1200.0)):  # camera dollies back
+        name = f"frame_{i:04d}"
+        frame_dir = os.path.join(root, name)
+        loc = np.array([x, 0.0, 170.0])
+        fx = export_frame(frame_dir, zero, fwd, right, up)  # Camera Locked: fixed pose at the origin
+        depth, _ = render_depth(loc, fwd, right, up, fx, radial=False)
+        write_exr(os.path.join(tmp, f"dolly.{i:04d}.exr"), depth)
+
+    def centre_distance(frame_dir):
+        cam = gss_tools.read_camera(os.path.join(frame_dir, "sparse", "0"))
+        pts = gss_tools.read_ply_xyz(os.path.join(frame_dir, "points.ply"))
+        u, v, z = gss_tools.project(cam, pts)
+        c = (np.abs(u - W / 2) < W / 6) & (np.abs(v - H / 2) < H / 6)
+        frac = np.abs(u - np.floor(u) - 0.5).max(), np.abs(v - np.floor(v) - 0.5).max()
+        assert max(frac) < 1e-3, f"{frame_dir}: points left their pixel rays {frac}"
+        return float(np.median(z[c]))
+
+    base = [sys.executable, TOOLS, "convert", "--root", root, "--depth", os.path.join(tmp, "dolly.{frame}.exr"),
+            "--stride", "1", "--edge-threshold", "0", "--max-depth", "1e7", "--text-only"]
+    subprocess.check_call(base, stdout=subprocess.DEVNULL)
+    absolute = [centre_distance(os.path.join(root, f"frame_{i:04d}")) for i in range(4)]
+    subprocess.check_call(base + ["--relative-depth", "--relative-reference", "center", "--relative-smoothing", "0"],
+                          stdout=subprocess.DEVNULL)
+    relative = [centre_distance(os.path.join(root, f"frame_{i:04d}")) for i in range(4)]
+
+    assert absolute[-1] > absolute[0] * 1.3, f"absolute depth should drift away: {absolute}"
+    assert max(relative) - min(relative) < 0.01 * relative[0], f"relative depth should stay constant: {relative}"
+    assert abs(relative[0] - absolute[0]) < 1e-6 * absolute[0], "first frame must stay unchanged (target = first frame)"
+    print(f"dolly: relative depth OK (absolute {absolute[0]:.1f}->{absolute[-1]:.1f} m, relative {relative[0]:.1f}->{relative[-1]:.1f} m)")
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         run_case(tmp, "frame_0000", (0, 0, 170), (-10, 0, 0), radial=False)
         run_case(tmp, "frame_0001", (-400, 250, 300), (-25, 20, 5), radial=False)
         run_case(tmp, "frame_0002", (100, -300, 220), (-15, -30, -8), radial=True)
         run_falloff_case(tmp)
+        run_relative_depth_case(tmp)
     print("All gss_tools tests passed.")
 
 

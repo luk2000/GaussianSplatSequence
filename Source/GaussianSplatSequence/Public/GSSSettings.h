@@ -24,6 +24,18 @@ enum class EGSSCoordinateSpace : uint8
 	CameraLocked UMETA(DisplayName = "Camera Locked (camera fixed, 3D film)"),
 };
 
+/** Which depth of a frame is normalised in the relative depth mode. */
+UENUM()
+enum class EGSSRelativeDepthReference : uint8
+{
+	/** Median depth of all valid pixels. */
+	Median       UMETA(DisplayName = "Median (whole image)"),
+	/** Median depth of the central third of the image - follows the subject in the middle of the frame. */
+	CenterMedian UMETA(DisplayName = "Median (image centre)"),
+	/** 5th percentile - the nearest surfaces stay at a constant distance. */
+	Nearest      UMETA(DisplayName = "Nearest (5th percentile)"),
+};
+
 /** LichtFeld --bg-mode. */
 UENUM()
 enum class EGSSBackgroundMode : uint8
@@ -195,6 +207,26 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, config, Category = "5 | Depth To Point Cloud", meta = (ClampMin = "0"))
 	int32 MaxPoints = 0;
+
+	/**
+	 * Relative depth: every frame's depth is scaled so that its reference depth lands at Relative Depth Target.
+	 * Scaling along the camera rays keeps the image from the camera pixel-identical, but the scene no longer
+	 * moves away from (or towards) a fixed viewer when the real camera dollies. Mainly for Camera Locked.
+	 * Applied by "Convert Depth For All Frames"; the factor per frame is written to <frame>/depth_scale.txt.
+	 */
+	UPROPERTY(EditAnywhere, config, Category = "5 | Depth To Point Cloud")
+	bool bRelativeDepth = false;
+
+	UPROPERTY(EditAnywhere, config, Category = "5 | Depth To Point Cloud", meta = (EditCondition = "bRelativeDepth"))
+	EGSSRelativeDepthReference RelativeDepthReference = EGSSRelativeDepthReference::CenterMedian;
+
+	/** Distance (Unreal units) the reference depth is mapped to. 0 = use the first frame's reference (first frame stays unchanged). */
+	UPROPERTY(EditAnywhere, config, Category = "5 | Depth To Point Cloud", meta = (EditCondition = "bRelativeDepth", ClampMin = "0"))
+	double RelativeDepthTarget = 0.0;
+
+	/** Smooths the reference over +/- N frames (geometric mean) so the scale does not pump. 0 = every frame on its own. */
+	UPROPERTY(EditAnywhere, config, Category = "5 | Depth To Point Cloud", meta = (EditCondition = "bRelativeDepth", ClampMin = "0", ClampMax = "100"))
+	int32 RelativeDepthSmoothing = 5;
 
 	/**
 	 * Radial falloff: full point density in the image centre, thinning out towards the image border

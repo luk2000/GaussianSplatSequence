@@ -33,8 +33,12 @@ namespace GSSPipeline
 	/** Steps the open level sequence through its frames and exports one COLMAP dataset per frame. */
 	FGSSResult ExportCameraSequence(const UGSSSettings& Settings);
 
-	/** Converts the depth EXR of one exported frame folder into points3D (+ copies the beauty image). */
-	FGSSResult ConvertDepthForFrame(const UGSSSettings& Settings, const FString& FrameDir, int32 FrameNumber);
+	/**
+	 * Converts the depth EXR of one exported frame folder into points3D (+ copies the beauty image).
+	 * DepthScale multiplies every depth (relative depth mode). < 0 = automatic: 1, or - with Relative Depth
+	 * enabled - this frame's own reference mapped to Relative Depth Target.
+	 */
+	FGSSResult ConvertDepthForFrame(const UGSSSettings& Settings, const FString& FrameDir, int32 FrameNumber, double DepthScale = -1.0);
 
 	/** Runs ConvertDepthForFrame for every exported frame folder under the output directory. */
 	FGSSResult ConvertDepthForAllFrames(const UGSSSettings& Settings);

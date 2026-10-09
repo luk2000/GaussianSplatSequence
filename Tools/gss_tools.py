@@ -205,7 +205,7 @@ def radial_keep_probability(w: int, h: int, inner: float, edge: float, exponent:
 
 def unproject(cam: Camera, depth: np.ndarray, depth_type: str = "planar", unit_scale: float = 0.01,
               depth_to_ue: float = 1.0, min_depth: float = 1.0, max_depth: float = 1e5,
-              stride: int = 1, edge_threshold: float = 0.05, falloff=None):
+              stride: int = 1, edge_threshold: float = 0.05, falloff=None, depth_scale: float = 1.0):
     """Same as GSSPipeline::ConvertDepthForFrame. Returns (world_xyz Nx3, pixel_xy Nx2).
     falloff: None or (inner_radius, edge_density, exponent) for the radial density falloff."""
     h, w = depth.shape
@@ -232,7 +232,7 @@ def unproject(cam: Camera, depth: np.ndarray, depth_type: str = "planar", unit_s
     mask = np.zeros_like(valid)
     mask[::stride, ::stride] = True
     ys, xs = np.nonzero(valid & mask)
-    z = d[ys, xs] * unit_scale
+    z = d[ys, xs] * depth_scale * unit_scale  # depth_scale: relative depth, moves points along their rays
     rays = np.stack([(xs + 0.5 - k.cx) / k.fx, (ys + 0.5 - k.cy) / k.fy, np.ones_like(z)], axis=-1)
     if depth_type == "radial":
         z = z / np.linalg.norm(rays, axis=-1)
@@ -280,7 +280,47 @@ def resolve(pattern: str, frame: int, padding: int, offset: int, frame_name: str
 # ----------------------------------------------------------------------------- commands
 
 
-def convert_frame(frame_dir: str, frame: int, args) -> int:
+def depth_reference(depth: np.ndarray, args) -> float:
+    """Same as ComputeDepthReference in GSSPipeline.cpp. Reference depth in Unreal units, -1 if none."""
+    h, w = depth.shape
+    if args.relative_reference == "center":
+        depth = depth[h // 3:h - h // 3, w // 3:w - w // 3]
+    d = (depth[::4, ::4] * args.depth_to_ue).ravel()
+    d = np.sort(d[np.isfinite(d) & (d >= args.min_depth) & (d <= args.max_depth)])
+    if d.size == 0:
+        return -1.0
+    q = 0.05 if args.relative_reference == "nearest" else 0.5
+    return float(d[min(max(int(q * (d.size - 1)), 0), d.size - 1)])
+
+
+def smooth_references(refs: list[float], radius: int) -> list[float]:
+    """Geometric mean over +/- radius frames, ignoring frames without a reference."""
+    out = []
+    for i in range(len(refs)):
+        window = [r for r in refs[max(0, i - radius):i + radius + 1] if r > 0]
+        out.append(float(np.exp(np.mean(np.log(window)))) if window else -1.0)
+    return out
+
+
+def relative_depth_scales(folders, args) -> list[float]:
+    refs = []
+    for frame, folder in folders:
+        name = os.path.basename(os.path.normpath(folder))
+        try:
+            depth = read_exr_channel(resolve(args.depth, frame, args.padding, args.offset, name), args.depth_channel)
+            refs.append(depth_reference(depth, args))
+        except Exception as e:
+            print(f"{name}: relative depth reference failed: {e}")
+            refs.append(-1.0)
+    smoothed = smooth_references(refs, max(0, args.relative_smoothing))
+    target = args.relative_target if args.relative_target > 0 else next((s for s in smoothed if s > 0), -1.0)
+    if target <= 0:
+        raise SystemExit("Relative depth: no frame has valid depth to measure.")
+    print(f"relative depth: target {target:.1f} cm ({'fixed' if args.relative_target > 0 else 'first frame'})")
+    return [target / s if s > 0 else 1.0 for s in smoothed]
+
+
+def convert_frame(frame_dir: str, frame: int, args, depth_scale: float = 1.0) -> int:
     sparse = os.path.join(frame_dir, "sparse", "0")
     cam = read_camera(sparse)
     name = os.path.basename(os.path.normpath(frame_dir))
@@ -290,7 +330,10 @@ def convert_frame(frame_dir: str, frame: int, args) -> int:
     world, pix = unproject(cam, depth, args.depth_type, unit_scale, args.depth_to_ue,
                            args.min_depth, args.max_depth, args.stride, args.edge_threshold,
                            falloff=(args.falloff_inner, args.falloff_edge, args.falloff_exponent)
-                           if args.radial_falloff else None)
+                           if args.radial_falloff else None,
+                           depth_scale=depth_scale)
+    with open(os.path.join(frame_dir, "depth_scale.txt"), "w", encoding="utf-8") as f:
+        f.write(f"{depth_scale:.10g}\n")
 
     if args.max_points and len(world) > args.max_points:
         keep = np.random.default_rng(1337).choice(len(world), args.max_points, replace=False)
@@ -324,11 +367,12 @@ def cmd_convert(args) -> int:
     if not folders:
         print("No frame folders found.")
         return 1
+    scales = relative_depth_scales(folders, args) if args.relative_depth else [1.0] * len(folders)
     failed = 0
-    for frame, folder in folders:
+    for (frame, folder), scale in zip(folders, scales):
         try:
-            n = convert_frame(folder, frame, args)
-            print(f"{os.path.basename(folder)}: {n} points")
+            n = convert_frame(folder, frame, args, scale)
+            print(f"{os.path.basename(folder)}: {n} points (depth scale {scale:.4f})")
         except Exception as e:  # keep going over long sequences
             failed += 1
             print(f"{os.path.basename(folder)}: ERROR {e}")
@@ -350,7 +394,9 @@ def cmd_check(args) -> int:
         xi = np.clip(np.floor(u).astype(int), 0, k.width - 1)
         yi = np.clip(np.floor(v).astype(int), 0, k.height - 1)
         unit_scale = float(read_ue_camera(args.frame).get("unit_scale", 0.01))
-        ref = depth[yi, xi] * args.depth_to_ue * unit_scale
+        scale_file = os.path.join(args.frame, "depth_scale.txt")
+        depth_scale = float(open(scale_file).read()) if os.path.exists(scale_file) else 1.0
+        ref = depth[yi, xi] * args.depth_to_ue * unit_scale * depth_scale
         if args.depth_type == "radial":
             rays = np.stack([(xi + 0.5 - k.cx) / k.fx, (yi + 0.5 - k.cy) / k.fy, np.ones_like(u)], -1)
             ref = ref / np.linalg.norm(rays, axis=-1)
@@ -463,6 +509,11 @@ def main() -> int:
     c.add_argument("--max-depth", type=float, default=1e5)
     c.add_argument("--stride", type=int, default=2)
     c.add_argument("--edge-threshold", type=float, default=0.05)
+    c.add_argument("--relative-depth", action="store_true",
+                   help="scale each frame's depth so its reference lands at a fixed distance (needs --root for smoothing)")
+    c.add_argument("--relative-reference", choices=["median", "center", "nearest"], default="center")
+    c.add_argument("--relative-target", type=float, default=0.0, help="target distance in cm (0 = first frame)")
+    c.add_argument("--relative-smoothing", type=int, default=5, help="smooth the reference over +/- N frames")
     c.add_argument("--radial-falloff", action="store_true", help="dense in the image centre, thinning out to the border")
     c.add_argument("--falloff-inner", type=float, default=0.4, help="radius (0=centre, 1=edge) with full density")
     c.add_argument("--falloff-edge", type=float, default=0.05, help="fraction of points kept at the border")
