@@ -137,6 +137,21 @@ print(lib.convert_depth_for_all_frames())
 print(lib.launch_training())
 ```
 
+### Bilder verkleinern
+
+`Tools/shrink_images.py` verkleinert Bilder (Dateien oder ganze Ordner) um einen Prozentsatz oder eine Pixelzahl. Das Seitenverhältnis bleibt erhalten, Format und Dateiname auch.
+
+```bash
+pip install pillow
+
+python Tools/shrink_images.py foto.jpg --percent 25            # um 25 % kleiner (-> 75 %)
+python Tools/shrink_images.py D:/Renders/Shot010 --pixels 200  # längere Seite um 200 px kleiner
+python Tools/shrink_images.py D:/Renders/Shot010 --width 1280 -o D:/Renders/Shot010_small
+python Tools/shrink_images.py *.png --height 720 --in-place    # Originale überschreiben
+```
+
+Ohne `--in-place` landen die Ergebnisse in `./shrunk` (oder in `-o`). `-r` nimmt Unterordner mit, `-q` setzt die JPEG/WebP-Qualität (Standard 92). Vergrößert wird nie.
+
 ## Tests
 
 ```bash
@@ -145,6 +160,9 @@ g++ -std=c++17 -O2 -ISource/GaussianSplatSequence/Public Tests/test_gss_math.cpp
 
 # End-to-End: synthetische Szene in Unreal-Konventionen raycasten -> EXR -> Punktwolke -> Geometrie prüfen
 python Tests/test_gss_tools.py
+
+# Bilder verkleinern
+python Tests/test_shrink_images.py
 ```
 
 ## Hinweise und Grenzen
