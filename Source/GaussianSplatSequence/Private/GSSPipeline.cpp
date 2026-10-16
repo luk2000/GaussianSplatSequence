@@ -315,6 +315,43 @@ namespace
 		return Result;
 	}
 
+	// Which optional flags the installed LichtFeld Studio build understands (parsed from --help).
+	// Release builds differ: newer ones save project.licht and only write a .ply with --export.
+	struct FLichtFeldCaps
+	{
+		bool bKnown = false;          // --help could be parsed
+		bool bExport = false;         // --export <formats>
+		bool bMinTrackLength = false; // --min-track-length
+	};
+
+	bool HelpHasFlag(const FString& Help, const TCHAR* Flag)
+	{
+		// The flag must be followed by '=', '[', ',' or whitespace, so "--export" does not match "--exclude-export".
+		const FRegexPattern Pattern(FString::Printf(TEXT("(^|[\\s,])%s([=\\[,]|\\s|$)"), Flag));
+		FRegexMatcher Matcher(Pattern, Help);
+		return Matcher.FindNext();
+	}
+
+	FLichtFeldCaps QueryLichtFeldCaps(const FString& Exe)
+	{
+		FLichtFeldCaps Caps;
+		int32 ReturnCode = 0;
+		FString StdOut;
+		FString StdErr;
+		if (FPlatformProcess::ExecProcess(*Exe, TEXT("--help"), &ReturnCode, &StdOut, &StdErr))
+		{
+			const FString Help = StdOut + TEXT("\n") + StdErr;
+			Caps.bKnown = Help.Contains(TEXT("--data-path"));
+			Caps.bExport = Caps.bKnown && HelpHasFlag(Help, TEXT("--export"));
+			Caps.bMinTrackLength = Caps.bKnown && HelpHasFlag(Help, TEXT("--min-track-length"));
+		}
+		if (!Caps.bKnown)
+		{
+			UE_LOG(LogGaussianSplatSequence, Warning, TEXT("Could not read '%s --help'; using conservative LichtFeld arguments."), *Exe);
+		}
+		return Caps;
+	}
+
 	// Stable pseudo-random value in [0, 1) per pixel, identical in every frame (and in gss_tools.py).
 	double PixelHash01(uint32 X, uint32 Y)
 	{
@@ -854,6 +891,11 @@ FGSSResult GSSPipeline::WriteTrainingScript(const UGSSSettings& Settings, FStrin
 		return FGSSResult::Error(TEXT("Set the LichtFeld Studio executable first."));
 	}
 	Exe = FPaths::ConvertRelativePathToFull(Exe);
+	if (!FPaths::FileExists(Exe))
+	{
+		return FGSSResult::Error(FString::Printf(TEXT("LichtFeld Studio executable not found: %s"), *Exe));
+	}
+	const FLichtFeldCaps Caps = QueryLichtFeldCaps(Exe);
 
 	const TArray<TPair<int32, FString>> Frames = FindFrameFolders(Settings);
 	if (Frames.Num() == 0)
@@ -941,7 +983,23 @@ FGSSResult GSSPipeline::WriteTrainingScript(const UGSSSettings& Settings, FStrin
 		Args.ReplaceInline(TEXT("{output}"), *Native(Work));
 		Args.ReplaceInline(TEXT("{name}"), *Name);
 		Args.ReplaceInline(TEXT("{iter}"), *FString::FromInt(Settings.Iterations));
-		Args = StripUnsupportedTrainArgs(Args);
+		if (Caps.bExport)
+		{
+			// Newer builds save project.licht and only write the splat .ply when asked to.
+			if (!Args.Contains(TEXT("--export")))
+			{
+				Args += TEXT(" --export ply");
+			}
+		}
+		else
+		{
+			Args = StripUnsupportedTrainArgs(Args);
+		}
+		if (Caps.bMinTrackLength && !Args.Contains(TEXT("--min-track-length")))
+		{
+			// Our depth points carry no feature tracks; any filter > 0 would drop the whole point cloud.
+			Args += TEXT(" --min-track-length 0");
+		}
 		if (!Settings.Strategy.TrimStartAndEnd().IsEmpty() && !Args.Contains(TEXT("--strategy")))
 		{
 			Args += FString::Printf(TEXT(" --strategy %s"), *Settings.Strategy.TrimStartAndEnd());
@@ -1037,7 +1095,8 @@ FGSSResult GSSPipeline::WriteTrainingScript(const UGSSSettings& Settings, FStrin
 	{
 		return FGSSResult::Error(FString::Printf(TEXT("Could not write %s"), *OutScriptPath));
 	}
-	return FGSSResult::Ok(FString::Printf(TEXT("Wrote %s (%d frames)"), *OutScriptPath, Frames.Num()));
+	return FGSSResult::Ok(FString::Printf(TEXT("Wrote %s (%d frames; LichtFeld: %s)"), *OutScriptPath, Frames.Num(),
+		!Caps.bKnown ? TEXT("version unknown") : Caps.bExport ? TEXT("--export ply") : TEXT("writes .ply itself")));
 }
 
 FGSSResult GSSPipeline::LaunchTraining(const UGSSSettings& Settings)

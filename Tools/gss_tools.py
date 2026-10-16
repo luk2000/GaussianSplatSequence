@@ -414,6 +414,25 @@ def find_splat(output_dir: str, name: str) -> str | None:
     return plys[-1] if plys else None
 
 
+def help_has_flag(help_text: str, flag: str) -> bool:
+    """Same rule as HelpHasFlag in GSSPipeline.cpp ('--export' must not match '--exclude-export')."""
+    return re.search(r"(^|[\s,])" + re.escape(flag) + r"([=\[,]|\s|$)", help_text) is not None
+
+
+def lichtfeld_caps(exe: str) -> dict:
+    """Optional flags the installed LichtFeld Studio build understands, parsed from --help."""
+    try:
+        p = subprocess.run([exe, "--help"], capture_output=True, text=True, timeout=60)
+        text = (p.stdout or "") + "\n" + (p.stderr or "")
+    except (OSError, subprocess.SubprocessError):
+        text = ""
+    known = "--data-path" in text
+    if not known:
+        print("WARNING: could not read LichtFeld --help; using conservative arguments")
+    return {"export": known and help_has_flag(text, "--export"),
+            "min_track_length": known and help_has_flag(text, "--min-track-length")}
+
+
 BG_MODES = {"color": "solidcolor", "modulation": "modulation", "image": "image", "random": "random"}
 
 
@@ -441,6 +460,7 @@ def cmd_train(args) -> int:
     folders = frame_folders(args.root, args.prefix)
     trained_root = os.path.join(args.root, args.trained)
     work_root = os.path.join(args.root, "_lichtfeld_work")
+    caps = lichtfeld_caps(args.exe)
     os.makedirs(trained_root, exist_ok=True)
     prev_final = None
     for i, (_, folder) in enumerate(folders):
@@ -460,6 +480,10 @@ def cmd_train(args) -> int:
         if args.sh_degree_interval and args.sh_degree != 0:
             cmd += ["--sh-degree-interval", str(args.sh_degree_interval)]
         cmd += background_args(args)
+        if caps["export"] and "--export" not in cmd:
+            cmd += ["--export", "ply"]  # newer builds save project.licht, .ply only on request
+        if caps["min_track_length"] and "--min-track-length" not in cmd:
+            cmd += ["--min-track-length", "0"]  # depth points have no tracks
         if args.init_from_previous and prev_final and os.path.exists(prev_final):
             cmd += ["--init", prev_final]
         print(f"[{i + 1}/{len(folders)}] {' '.join(cmd)}", flush=True)

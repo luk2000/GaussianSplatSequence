@@ -78,7 +78,9 @@ Shot010/frame_0101/
   ```
   -d "{data}" -o "{output}" -i {iter} --headless --output-name {name}
   ```
-  Nimm nur Flags auf, die `LichtFeld-Studio.exe --help` deiner Version auflistet (das aktuelle Release kennt z. B. kein `--export`).
+  Das Plugin liest beim Schreiben des Skripts `LichtFeld-Studio --help` aus und passt sich der installierten Version an:
+  * Kennt die Version `--export` (neuere Builds speichern ein `project.licht` und schreiben die `.ply` nur auf Anfrage), wird `--export ply` angehängt. Ältere Builds ohne das Flag bekommen es nicht.
+  * Kennt sie `--min-track-length`, wird `--min-track-length 0` gesetzt. Die Tiefenpunkte haben keine Feature-Tracks, jeder Wert > 0 würde die Punktwolke komplett verwerfen. Beim manuellen Import in der GUI ebenfalls *Minimum Track Length = 0* lassen.
 * **Max Splats** begrenzt die Anzahl der Gaussians pro Frame (`--max-cap`). Dafür steht **Strategy** standardmäßig auf `mcmc`.
 * **SH Degree** (`--sh-degree`, Standard **0**): 0 = nur RGB pro Splat (56 statt 236 Bytes). Aus einer einzigen Kamera lässt sich blickwinkelabhängige Farbe ohnehin nicht lernen, und die Sequenz wird ~4× kleiner. -1 = LichtFeld-Standard (3). **SH Degree Interval** (`--sh-degree-interval`) gilt nur bei SH > 0.
 * **Background Mode** (`--bg-mode`): *Color* (Vollfarbe, Farbe über **Background Color** → `--bg-color`), *Modulation*, *Image* (Bild über **Background Image** → `--bg-image-path`) oder *Random*.
